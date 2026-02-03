@@ -60,18 +60,46 @@ export class MCPWrapper extends EventEmitter {
         this.handleStdoutData(data);
       });
 
-      // Handle stderr for errors and warnings
+      // Handle stderr for errors, warnings, and info messages
       this.process.stderr?.on('data', (data: Buffer) => {
-        const text = data.toString();
+        const text = data.toString().trim();
+        const lowerText = text.toLowerCase();
 
-        // Distinguish between warnings and actual errors
-        if (text.includes('warn') || text.includes('deprecated')) {
-          // Just log warnings, don't emit error events
-          console.warn('[MCP Server Warning]:', text.trim());
-        } else {
-          // Actual errors should be emitted
-          console.error('[MCP Server Error]:', text.trim());
+        // Categorize the message
+        if (
+          // Informational startup/status messages
+          lowerText.includes('running on') ||
+          lowerText.includes('starting') ||
+          lowerText.includes('listening') ||
+          lowerText.includes('server started') ||
+          lowerText.includes('ready') ||
+          lowerText.includes('initialized')
+        ) {
+          // Informational messages - just log
+          console.log('[MCP Server Info]:', text);
+        } else if (
+          // Warnings
+          lowerText.includes('warn') ||
+          lowerText.includes('deprecated') ||
+          lowerText.includes('deprecation')
+        ) {
+          // Warnings - log but don't emit error events
+          console.warn('[MCP Server Warning]:', text);
+        } else if (
+          // Actual errors
+          lowerText.includes('error') ||
+          lowerText.includes('failed') ||
+          lowerText.includes('exception') ||
+          lowerText.includes('fatal') ||
+          lowerText.includes('cannot') ||
+          lowerText.includes('unable to')
+        ) {
+          // Real errors - emit error event
+          console.error('[MCP Server Error]:', text);
           this.emit('error', new Error(text));
+        } else {
+          // Unknown stderr output - log as debug
+          console.log('[MCP Server Debug]:', text);
         }
       });
 
