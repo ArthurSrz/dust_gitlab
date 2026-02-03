@@ -44,12 +44,19 @@ export class SessionManager {
         // Forward MCP messages to SSE client
         res.write(`event: message\n`);
         res.write(`data: ${JSON.stringify(message)}\n\n`);
+        // Explicitly flush to ensure immediate delivery
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       });
 
       mcpWrapper.on('error', (error: Error) => {
         console.error(`[Session ${sessionId}] MCP error:`, error.message);
         res.write(`event: error\n`);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       });
 
       mcpWrapper.on('exit', ({ code, signal }) => {

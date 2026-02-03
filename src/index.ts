@@ -98,11 +98,16 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     console.log(`[SSE] Session ${sessionId} created successfully`);
 
-    // Send initial connection event with session ID
-    res.write(`event: connected\n`);
+    // Send initial connection event with session ID and endpoint
+    res.write(`event: endpoint\n`);
+    res.write(`data: /sse/messages\n\n`);
+    res.write(`event: message\n`);
     res.write(`data: ${JSON.stringify({
-      status: 'connected',
-      sessionId: sessionId
+      jsonrpc: '2.0',
+      method: 'session/created',
+      params: {
+        sessionId: sessionId
+      }
     })}\n\n`);
 
     // Handle client disconnect
