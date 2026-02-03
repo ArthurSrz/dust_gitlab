@@ -149,15 +149,22 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
 // POST endpoint for sending MCP messages
 app.post('/sse/messages', authenticateRequest, async (req, res) => {
-  // Log incoming request for debugging
-  console.log('[POST] Received MCP message:', {
-    method: req.body.method,
-    id: req.body.id,
-    hasParams: !!req.body.params,
-  });
-
-  // Body should be the JSON-RPC message directly
   const message = req.body;
+
+  // Enhanced logging for tool calls
+  if (message.method === 'tools/call') {
+    console.log('[POST] Tool Call:', {
+      id: message.id,
+      tool: message.params?.name,
+      arguments: JSON.stringify(message.params?.arguments || {}),
+    });
+  } else {
+    console.log('[POST] MCP Message:', {
+      method: message.method,
+      id: message.id,
+      hasParams: !!message.params,
+    });
+  }
 
   // Validate JSON-RPC format
   if (!message.jsonrpc || message.jsonrpc !== '2.0') {
@@ -174,7 +181,6 @@ app.post('/sse/messages', authenticateRequest, async (req, res) => {
     const wrapper = await getOrCreateMCPWrapper();
 
     // Forward message to MCP server
-    console.log(`[POST] Forwarding to MCP server: ${message.method || 'notification'}`);
     wrapper.sendMessage(message);
 
     // Acknowledge receipt

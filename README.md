@@ -121,22 +121,68 @@ This server bridges the official stdio-based [GitLab MCP server](https://github.
 
 ## Troubleshooting
 
+### Connection Issues
+
 **"Authentication failed"**
 - Verify your GitLab token is valid and hasn't expired
 - Check token has `api` and `read_repository` scopes
+- Test token: `curl -H "PRIVATE-TOKEN: glpat-xxx" https://gitlab.com/api/v4/user`
 
 **"Connection timeout"**
 - Make sure you're using Railway (not Vercel free tier which has 10s limits)
 - Check Railway logs for errors
 
-**"Can't access my projects"**
-- Verify you're a member of the GitLab projects/groups
-- Check your GitLab token permissions
-
 **"Tools not discovered"**
 - Ensure the SSE endpoint URL is correct: `https://your-project.up.railway.app/sse`
 - Verify Bearer token matches your `MCP_AUTH_SECRET`
 - Check Railway logs for connection errors
+
+### Tool Execution Errors
+
+**"GitLab API error: Not Found" (404)**
+
+This means the GitLab API couldn't find what you asked for. Common causes:
+
+1. **Wrong project path/ID**
+   - ✅ Correct: `group/project-name` or `12345678` (project ID)
+   - ❌ Wrong: `project-name` (missing group), `group/repo` (wrong name)
+   - **Fix**: Go to your GitLab project → Settings → General → copy the full path
+
+2. **File doesn't exist**
+   - ✅ Correct: `README.md`, `src/index.ts`
+   - ❌ Wrong: `readme.md` (wrong case), `/src/index.ts` (leading slash)
+   - **Fix**: Browse the project in GitLab, copy the exact file path
+
+3. **Wrong branch**
+   - Default branch is usually `main` or `master`
+   - **Fix**: Check the project's default branch in GitLab
+
+4. **No access to project**
+   - Your GitLab token only has access to projects you're a member of
+   - **Fix**: Make sure you're a member of the project/group
+
+**Example valid tool call:**
+```
+Tool: get_file_contents
+Inputs:
+  - project: "mygroup/myproject"  (or project ID: "12345678")
+  - file_path: "README.md"
+  - ref: "main"  (optional, defaults to default branch)
+```
+
+**Debug tips:**
+1. Check Railway logs to see the exact parameters being sent
+2. Test GitLab API directly: `curl -H "PRIVATE-TOKEN: glpat-xxx" https://gitlab.com/api/v4/projects/group%2Fproject`
+3. Verify project ID: `curl -H "PRIVATE-TOKEN: glpat-xxx" https://gitlab.com/api/v4/projects/group%2Fproject | jq .id`
+
+**"GitLab API error: Unauthorized" (401)**
+- GitLab token is invalid or expired
+- Token doesn't have required scopes (`api`, `read_repository`)
+- **Fix**: Regenerate token with correct scopes
+
+**"GitLab API error: Forbidden" (403)**
+- Token is valid but doesn't have permission for this action
+- **Fix**: Check project membership and permissions
 
 ## Project Structure
 
