@@ -1,0 +1,38 @@
+{
+  "name": "dust-gitlab-mcp",
+  "version": "1.0.0",
+  "description": "MCP server wrapper for GitLab integration with Dust.tt",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "gitlab",
+    "dust",
+    "model-context-protocol"
+  ],
+  "author": "Arthur Sarazin",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/server-gitlab": "^2025.4.25",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

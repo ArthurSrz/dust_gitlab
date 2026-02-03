@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": null,
+  "outputDirectory": "dist",
+  "functions": {
+    "dist/index.js": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  },
+  "routes": [
+    {
+      "src": "/sse",
+      "dest": "/dist/index.js"
+    },
+    {
+      "src": "/sse/messages",
+      "dest": "/dist/index.js"
+    },
+    {
+      "src": "/health",
+      "dest": "/dist/index.js"
+    }
+  ],
+  "env": {
+    "GITLAB_PERSONAL_ACCESS_TOKEN": "@gitlab_personal_access_token",
+    "GITLAB_API_URL": "https://gitlab.com/api/v4",
+    "MCP_AUTH_SECRET": "@mcp_auth_secret"
+  }
+}
