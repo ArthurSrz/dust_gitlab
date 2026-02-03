@@ -114,14 +114,15 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     // Forward MCP messages to this SSE client
     const messageHandler = (message: any) => {
-      // Enhance error messages for common GitLab API errors
+      // Enhance error messages for common GitLab API errors (only once)
       if (message.error) {
         const errorMsg = message.error.message || '';
 
-        // Detect "Not Found" errors and add helpful context
-        if (errorMsg.includes('Not Found') || errorMsg.includes('404')) {
+        // Detect "Not Found" errors and add helpful context (check not already added)
+        if ((errorMsg.includes('Not Found') || errorMsg.includes('404')) &&
+            !errorMsg.includes('Common causes:')) {
           console.warn('[SSE] GitLab 404 Error - adding helpful context');
-          message.error.message = errorMsg + ' | Common causes: (1) Wrong project path - use "group/project" format, (2) File does not exist - check exact path and case, (3) Directory path used instead of file path, (4) Wrong branch name, (5) No access to project';
+          message.error.message = errorMsg + ' | Common causes: (1) Wrong project path - use "group/project" format, (2) File does not exist - check exact path and case, (3) Directory path used instead of file path, (4) Wrong branch name - use "ref" parameter, (5) No access to project';
         }
       }
 
@@ -183,6 +184,13 @@ function fixToolCallParameters(message: any): any {
     delete args.path;
   }
 
+  // Fix branch -> ref (GitLab API uses 'ref' for branch/tag/commit)
+  if (args.branch && !args.ref) {
+    console.log('[FIX] Translating branch -> ref');
+    args.ref = args.branch;
+    delete args.branch;
+  }
+
   // Validate get_file_contents tool
   if (toolName === 'get_file_contents') {
     const filePath = args.file_path || args.path;
@@ -203,6 +211,13 @@ function fixToolCallParameters(message: any): any {
     }
     if (!filePath) {
       console.error('[ERROR] Missing required parameter: file_path');
+    }
+
+    // Log branch/ref being used (helpful for debugging branch issues)
+    if (args.ref) {
+      console.log(`[INFO] Accessing file on ref: "${args.ref}"`);
+    } else {
+      console.log('[INFO] No ref specified, using default branch');
     }
   }
 
