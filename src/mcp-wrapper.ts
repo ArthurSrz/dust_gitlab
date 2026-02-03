@@ -48,6 +48,10 @@ export class MCPWrapper extends EventEmitter {
       this.process = spawn('npx', ['--yes', '@infochamp/gitlab-mcp-server'], {
         env: {
           ...process.env,
+          // Map to @infochamp/gitlab-mcp-server expected names
+          GITLAB_TOKEN: this.gitlabToken,
+          GITLAB_URL: this.gitlabApiUrl.replace('/api/v4', ''), // Remove /api/v4 suffix
+          // Also keep original names for compatibility
           GITLAB_PERSONAL_ACCESS_TOKEN: this.gitlabToken,
           GITLAB_API_URL: this.gitlabApiUrl,
           // Suppress npm warnings
