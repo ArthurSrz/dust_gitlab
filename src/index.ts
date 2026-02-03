@@ -114,6 +114,17 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     // Forward MCP messages to this SSE client
     const messageHandler = (message: any) => {
+      // Enhance error messages for common GitLab API errors
+      if (message.error) {
+        const errorMsg = message.error.message || '';
+
+        // Detect "Not Found" errors and add helpful context
+        if (errorMsg.includes('Not Found') || errorMsg.includes('404')) {
+          console.warn('[SSE] GitLab 404 Error - adding helpful context');
+          message.error.message = errorMsg + ' | Common causes: (1) Wrong project path - use "group/project" format, (2) File does not exist - check exact path and case, (3) Directory path used instead of file path, (4) Wrong branch name, (5) No access to project';
+        }
+      }
+
       res.write(`event: message\n`);
       res.write(`data: ${JSON.stringify(message)}\n\n`);
     };
@@ -147,9 +158,46 @@ app.get('/sse', authenticateRequest, async (req, res) => {
   }
 });
 
+/**
+ * Fix common parameter issues in tool calls
+ */
+function fixToolCallParameters(message: any): any {
+  if (message.method !== 'tools/call') {
+    return message;
+  }
+
+  const toolName = message.params?.name;
+  const args = message.params?.arguments || {};
+
+  // Fix project_id -> project (common mistake)
+  if (args.project_id && !args.project) {
+    console.log('[FIX] Translating project_id -> project');
+    args.project = args.project_id;
+    delete args.project_id;
+  }
+
+  // Validate get_file_contents tool
+  if (toolName === 'get_file_contents') {
+    const filePath = args.file_path || args.path;
+
+    // Check if trying to read a directory (common paths that are usually directories)
+    const commonDirs = ['src', 'docs', 'test', 'tests', 'lib', 'dist', 'build', 'public', 'assets', 'components', 'pages', 'api'];
+    const isDirLike = commonDirs.includes(filePath) ||
+                      (filePath && !filePath.includes('.') && !filePath.includes('/'));
+
+    if (isDirLike) {
+      console.warn(`[WARN] Possible directory path in get_file_contents: "${filePath}"`);
+      console.warn('[WARN] This tool only works for files. If you need directory contents, the API will return 404.');
+    }
+  }
+
+  message.params.arguments = args;
+  return message;
+}
+
 // POST endpoint for sending MCP messages
 app.post('/sse/messages', authenticateRequest, async (req, res) => {
-  const message = req.body;
+  let message = req.body;
 
   // Enhanced logging for tool calls
   if (message.method === 'tools/call') {
@@ -158,6 +206,9 @@ app.post('/sse/messages', authenticateRequest, async (req, res) => {
       tool: message.params?.name,
       arguments: JSON.stringify(message.params?.arguments || {}),
     });
+
+    // Fix common parameter issues
+    message = fixToolCallParameters(message);
   } else {
     console.log('[POST] MCP Message:', {
       method: message.method,
