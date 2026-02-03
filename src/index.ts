@@ -98,11 +98,19 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     console.log(`[SSE] Session ${sessionId} created successfully`);
 
-    // Send initial connection event with session ID
-    // Keep it simple for Dust.tt compatibility
-    res.write(`event: connected\n`);
+    // Send endpoint first (tells client where to POST messages)
+    res.write(`event: endpoint\n`);
+    res.write(`data: ${req.protocol}://${req.get('host')}/sse/messages\n\n`);
+
+    // Then send session info
+    res.write(`event: message\n`);
     res.write(`data: ${JSON.stringify({
-      sessionId: sessionId
+      jsonrpc: '2.0',
+      id: null,
+      result: {
+        sessionId: sessionId,
+        capabilities: {}
+      }
     })}\n\n`);
 
     // Handle client disconnect
