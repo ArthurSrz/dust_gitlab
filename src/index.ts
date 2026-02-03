@@ -7,7 +7,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
-import { MCPWrapper, MCPMessage } from './mcp-wrapper.js';
+import { SessionManager } from './session-manager.js';
 
 // Load environment variables
 config();
@@ -19,6 +19,14 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Session manager instance
+const sessionManager = new SessionManager();
+
+// Cleanup stale sessions every 10 minutes
+setInterval(() => {
+  sessionManager.cleanupStaleSessions();
+}, 10 * 60 * 1000);
 
 // Environment variable validation
 const requiredEnvVars = [
@@ -66,6 +74,7 @@ app.get('/health', (req, res) => {
     service: 'dust-gitlab-mcp',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
+    activeSessions: sessionManager.getSessionCount(),
   });
 });
 
@@ -79,51 +88,31 @@ app.get('/sse', authenticateRequest, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  // Create MCP wrapper instance
-  const mcpWrapper = new MCPWrapper(
-    process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
-    process.env.GITLAB_API_URL!
-  );
-
-  // Attach event listeners BEFORE starting to avoid unhandled error events
-  // Forward MCP messages to SSE client
-  mcpWrapper.on('message', (message: MCPMessage) => {
-    res.write(`event: message\n`);
-    res.write(`data: ${JSON.stringify(message)}\n\n`);
-  });
-
-  // Handle MCP server errors
-  mcpWrapper.on('error', (error: Error) => {
-    console.error('[SSE] MCP server error:', error);
-    res.write(`event: error\n`);
-    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-  });
-
-  // Handle MCP server exit
-  mcpWrapper.on('exit', ({ code, signal }) => {
-    console.log(`[SSE] MCP server exited (code: ${code}, signal: ${signal})`);
-    res.write(`event: disconnected\n`);
-    res.write(`data: ${JSON.stringify({ reason: 'Server process exited' })}\n\n`);
-    res.end();
-  });
-
   try {
-    // Start the MCP server (after listeners are attached)
-    await mcpWrapper.start();
-    console.log('[SSE] MCP server started successfully');
+    // Create session with MCP wrapper
+    const sessionId = await sessionManager.createSession(
+      res,
+      process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
+      process.env.GITLAB_API_URL!
+    );
 
-    // Send initial connection event
+    console.log(`[SSE] Session ${sessionId} created successfully`);
+
+    // Send initial connection event with session ID
     res.write(`event: connected\n`);
-    res.write(`data: ${JSON.stringify({ status: 'connected' })}\n\n`);
+    res.write(`data: ${JSON.stringify({
+      status: 'connected',
+      sessionId: sessionId
+    })}\n\n`);
 
     // Handle client disconnect
     req.on('close', async () => {
-      console.log('[SSE] Client disconnected');
-      await mcpWrapper.stop();
+      console.log(`[SSE] Client disconnected, session ${sessionId}`);
+      await sessionManager.destroySession(sessionId);
     });
 
   } catch (error) {
-    console.error('[SSE] Failed to start MCP server:', error);
+    console.error('[SSE] Failed to create session:', error);
     res.write(`event: error\n`);
     res.write(`data: ${JSON.stringify({
       error: 'Failed to start MCP server',
@@ -134,8 +123,17 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 });
 
 // POST endpoint for sending MCP messages
-app.post('/sse/messages', authenticateRequest, express.json(), async (req, res) => {
-  const { message } = req.body;
+app.post('/sse/messages', authenticateRequest, async (req, res) => {
+  const { sessionId, message } = req.body;
+
+  // Validate request
+  if (!sessionId) {
+    res.status(400).json({
+      error: 'Bad Request',
+      message: 'Missing "sessionId" field in request body',
+    });
+    return;
+  }
 
   if (!message) {
     res.status(400).json({
@@ -155,19 +153,26 @@ app.post('/sse/messages', authenticateRequest, express.json(), async (req, res) 
   }
 
   try {
-    // For now, we'll need to maintain active MCP wrapper instances
-    // In production, you'd want connection pooling or session management
+    // Get session
+    const session = sessionManager.getSession(sessionId);
+    if (!session) {
+      res.status(404).json({
+        error: 'Not Found',
+        message: `Session ${sessionId} not found or expired`,
+      });
+      return;
+    }
 
-    // This is a simplified implementation - in production you'd need:
-    // 1. Session management to track active SSE connections
-    // 2. Message routing to send requests to the correct MCP instance
-    // 3. Timeout handling for requests without active connections
+    // Forward message to MCP server
+    console.log(`[POST] Forwarding message to session ${sessionId}:`, message.method || 'notification');
+    sessionManager.sendMessage(sessionId, message);
 
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'Direct message posting requires active SSE connection',
-      hint: 'Use the /sse endpoint to establish a persistent connection',
+    // Acknowledge receipt
+    res.json({
+      status: 'ok',
+      message: 'Message forwarded to MCP server',
     });
+
   } catch (error) {
     console.error('[POST] Error handling message:', error);
     res.status(500).json({
@@ -193,6 +198,7 @@ app.listen(PORT, () => {
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`   Health check: /health`);
   console.log(`   SSE endpoint: /sse`);
+  console.log(`   Messages endpoint: POST /sse/messages`);
 });
 
 // Also export for Vercel serverless compatibility
