@@ -104,6 +104,12 @@ app.get('/sse', authenticateRequest, async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  // CRITICAL: Send endpoint event first (for OLD HTTP+SSE transport compatibility)
+  // This tells Dust.tt where to send POST requests
+  res.write(`event: endpoint\n`);
+  res.write(`data: /sse/messages\n\n`);
+  console.log('[SSE] Sent endpoint event: /sse/messages');
+
   try {
     // Get or create global MCP wrapper
     const wrapper = await getOrCreateMCPWrapper();
