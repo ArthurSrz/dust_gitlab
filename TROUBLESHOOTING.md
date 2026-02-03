@@ -63,6 +63,32 @@ Common issues and solutions for the Dust-GitLab MCP integration.
    curl -H "Authorization: your-secret-here" http://localhost:3000/sse
    ```
 
+## Server Startup Issues
+
+### "Unhandled 'error' event" on SSE connection
+
+**Symptoms:**
+- Server crashes with "Unhandled 'error' event"
+- Error message mentions npm warnings
+- Crash occurs right after SSE connection established
+
+**Cause:**
+- npm warnings from npx being treated as errors
+- Error event emitted before error listener attached
+
+**Solution:**
+✅ **Fixed in latest version** (commit 6b6dffc)
+
+If you're on an older version:
+1. Update to latest code: `git pull origin main`
+2. Rebuild: `npm run build`
+3. Redeploy
+
+The fix includes:
+- Error listeners attached before server startup
+- npm warnings suppressed and logged separately
+- Only actual errors cause error events
+
 ## Connection Issues
 
 ### "Cannot access Veltys projects"
