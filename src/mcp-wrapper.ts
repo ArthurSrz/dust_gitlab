@@ -43,11 +43,14 @@ export class MCPWrapper extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       // Spawn the GitLab MCP server with environment variables
-      this.process = spawn('npx', ['@modelcontextprotocol/server-gitlab'], {
+      // Use npx with --no flag to suppress warnings
+      this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
         env: {
           ...process.env,
           GITLAB_PERSONAL_ACCESS_TOKEN: this.gitlabToken,
           GITLAB_API_URL: this.gitlabApiUrl,
+          // Suppress npm warnings
+          npm_config_loglevel: 'error',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -57,11 +60,19 @@ export class MCPWrapper extends EventEmitter {
         this.handleStdoutData(data);
       });
 
-      // Handle stderr for errors
+      // Handle stderr for errors and warnings
       this.process.stderr?.on('data', (data: Buffer) => {
-        const errorText = data.toString();
-        console.error('[MCP Server Error]:', errorText);
-        this.emit('error', new Error(errorText));
+        const text = data.toString();
+
+        // Distinguish between warnings and actual errors
+        if (text.includes('warn') || text.includes('deprecated')) {
+          // Just log warnings, don't emit error events
+          console.warn('[MCP Server Warning]:', text.trim());
+        } else {
+          // Actual errors should be emitted
+          console.error('[MCP Server Error]:', text.trim());
+          this.emit('error', new Error(text));
+        }
       });
 
       // Handle process exit

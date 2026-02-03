@@ -85,35 +85,36 @@ app.get('/sse', authenticateRequest, async (req, res) => {
     process.env.GITLAB_API_URL!
   );
 
+  // Attach event listeners BEFORE starting to avoid unhandled error events
+  // Forward MCP messages to SSE client
+  mcpWrapper.on('message', (message: MCPMessage) => {
+    res.write(`event: message\n`);
+    res.write(`data: ${JSON.stringify(message)}\n\n`);
+  });
+
+  // Handle MCP server errors
+  mcpWrapper.on('error', (error: Error) => {
+    console.error('[SSE] MCP server error:', error);
+    res.write(`event: error\n`);
+    res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+  });
+
+  // Handle MCP server exit
+  mcpWrapper.on('exit', ({ code, signal }) => {
+    console.log(`[SSE] MCP server exited (code: ${code}, signal: ${signal})`);
+    res.write(`event: disconnected\n`);
+    res.write(`data: ${JSON.stringify({ reason: 'Server process exited' })}\n\n`);
+    res.end();
+  });
+
   try {
-    // Start the MCP server
+    // Start the MCP server (after listeners are attached)
     await mcpWrapper.start();
     console.log('[SSE] MCP server started successfully');
 
     // Send initial connection event
     res.write(`event: connected\n`);
     res.write(`data: ${JSON.stringify({ status: 'connected' })}\n\n`);
-
-    // Forward MCP messages to SSE client
-    mcpWrapper.on('message', (message: MCPMessage) => {
-      res.write(`event: message\n`);
-      res.write(`data: ${JSON.stringify(message)}\n\n`);
-    });
-
-    // Handle MCP server errors
-    mcpWrapper.on('error', (error: Error) => {
-      console.error('[SSE] MCP server error:', error);
-      res.write(`event: error\n`);
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-    });
-
-    // Handle MCP server exit
-    mcpWrapper.on('exit', ({ code, signal }) => {
-      console.log(`[SSE] MCP server exited (code: ${code}, signal: ${signal})`);
-      res.write(`event: disconnected\n`);
-      res.write(`data: ${JSON.stringify({ reason: 'Server process exited' })}\n\n`);
-      res.end();
-    });
 
     // Handle client disconnect
     req.on('close', async () => {
