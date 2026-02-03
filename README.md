@@ -5,10 +5,13 @@ HTTP/SSE wrapper for the official GitLab MCP server, enabling Dust.tt to query G
 ## Architecture
 
 ```
-Dust.tt → HTTPS/SSE → Vercel Function → stdio bridge → @modelcontextprotocol/server-gitlab → GitLab API
+Dust.tt → HTTPS/SSE → Railway/Vercel → stdio bridge → @modelcontextprotocol/server-gitlab → GitLab API
 ```
 
 This wrapper bridges the official stdio-based GitLab MCP server to HTTP/SSE transport required by Dust.tt.
+
+**Recommended Platform**: Railway (no timeout limits for SSE connections)
+**Alternative**: Vercel (10s timeout on free tier may affect long-running queries)
 
 ## Features
 
@@ -63,28 +66,40 @@ This wrapper bridges the official stdio-based GitLab MCP server to HTTP/SSE tran
         http://localhost:3000/sse
    ```
 
-### Deploy to Vercel
+### Deploy to Railway (Recommended)
 
-1. **Install Vercel CLI**
+Railway provides persistent processes with no timeout limits, ideal for SSE connections.
+
+1. **Connect GitHub repository**
+   - Go to [railway.app](https://railway.app)
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select `ArthurSrz/dust_gitlab`
+
+2. **Configure environment variables** in Railway dashboard:
+   - `GITLAB_PERSONAL_ACCESS_TOKEN`: Your GitLab PAT
+   - `GITLAB_API_URL`: `https://gitlab.com/api/v4`
+   - `MCP_AUTH_SECRET`: Random secret for Dust.tt auth
+   - `NODE_ENV`: `production`
+
+3. **Generate public domain**
+   - Railway Settings → Networking → Generate Domain
+   - Get URL: `https://your-project.up.railway.app`
+
+4. **Verify deployment**
    ```bash
-   npm i -g vercel
+   curl https://your-project.up.railway.app/health
    ```
 
-2. **Set environment variables in Vercel**
-   ```bash
-   vercel env add GITLAB_PERSONAL_ACCESS_TOKEN
-   vercel env add MCP_AUTH_SECRET
-   ```
+See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for detailed instructions.
 
-3. **Deploy**
-   ```bash
-   vercel --prod
-   ```
+### Alternative: Deploy to Vercel
 
-4. **Get your endpoint URL**
-   ```
-   https://your-project.vercel.app/sse
-   ```
+⚠️ **Note**: Vercel free tier has 10s timeout which may affect SSE connections.
+
+1. **Install Vercel CLI**: `npm i -g vercel`
+2. **Set environment variables**: `vercel env add GITLAB_PERSONAL_ACCESS_TOKEN`
+3. **Deploy**: `vercel --prod`
+4. **Get endpoint**: `https://your-project.vercel.app/sse`
 
 ### Connect to Dust.tt
 
