@@ -7,20 +7,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "type-check": "tsc --noEmit"
+    "start": "node dist/index.js"
   },
-  "keywords": [
-    "mcp",
-    "gitlab",
-    "dust",
-    "model-context-protocol"
-  ],
   "author": "Arthur Sarazin",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/server-gitlab": "^2025.4.25",
-    "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^4.21.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7"
