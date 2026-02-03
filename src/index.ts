@@ -7,7 +7,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
-import { SessionManager } from './session-manager.js';
+import { MCPWrapper } from './mcp-wrapper.js';
 
 // Load environment variables
 config();
@@ -20,13 +20,28 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Session manager instance
-const sessionManager = new SessionManager();
+// Global MCP wrapper instance (single-session model)
+let globalMCPWrapper: MCPWrapper | null = null;
+let currentSSEResponse: Response | null = null;
 
-// Cleanup stale sessions every 10 minutes
-setInterval(() => {
-  sessionManager.cleanupStaleSessions();
-}, 10 * 60 * 1000);
+/**
+ * Get or create the global MCP wrapper instance
+ */
+async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
+  if (!globalMCPWrapper || !globalMCPWrapper.isRunning()) {
+    console.log('[MCP] Creating new global MCP wrapper instance');
+
+    globalMCPWrapper = new MCPWrapper(
+      process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
+      process.env.GITLAB_API_URL!
+    );
+
+    await globalMCPWrapper.start();
+    console.log('[MCP] Global MCP wrapper started successfully');
+  }
+
+  return globalMCPWrapper;
+}
 
 // Environment variable validation
 const requiredEnvVars = [
@@ -74,7 +89,8 @@ app.get('/health', (req, res) => {
     service: 'dust-gitlab-mcp',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
-    activeSessions: sessionManager.getSessionCount(),
+    mcpRunning: globalMCPWrapper?.isRunning() || false,
+    sseConnected: currentSSEResponse !== null,
   });
 });
 
@@ -89,27 +105,46 @@ app.get('/sse', authenticateRequest, async (req, res) => {
   res.flushHeaders();
 
   try {
-    // Create session with MCP wrapper
-    const sessionId = await sessionManager.createSession(
-      res,
-      process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
-      process.env.GITLAB_API_URL!
-    );
+    // Get or create global MCP wrapper
+    const wrapper = await getOrCreateMCPWrapper();
 
-    console.log(`[SSE] Session ${sessionId} created successfully`);
+    // Store current SSE connection
+    currentSSEResponse = res;
 
-    // Send endpoint URL where client should POST messages
-    res.write(`event: endpoint\n`);
-    res.write(`data: /sse/messages\n\n`);
+    // Forward MCP messages to this SSE client
+    const messageHandler = (message: any) => {
+      res.write(`event: message\n`);
+      res.write(`data: ${JSON.stringify(message)}\n\n`);
+      // Explicitly flush to ensure immediate delivery
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
+    };
+
+    const errorHandler = (error: Error) => {
+      console.error('[SSE] MCP error:', error.message);
+      res.write(`event: error\n`);
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      if (typeof (res as any).flush === 'function') {
+        (res as any).flush();
+      }
+    };
+
+    wrapper.on('message', messageHandler);
+    wrapper.on('error', errorHandler);
+
+    console.log('[SSE] Connection established and message handlers attached');
 
     // Handle client disconnect
-    req.on('close', async () => {
-      console.log(`[SSE] Client disconnected, session ${sessionId}`);
-      await sessionManager.destroySession(sessionId);
+    req.on('close', () => {
+      console.log('[SSE] Client disconnected');
+      wrapper.removeListener('message', messageHandler);
+      wrapper.removeListener('error', errorHandler);
+      currentSSEResponse = null;
     });
 
   } catch (error) {
-    console.error('[SSE] Failed to create session:', error);
+    console.error('[SSE] Failed to start MCP wrapper:', error);
     res.write(`event: error\n`);
     res.write(`data: ${JSON.stringify({
       error: 'Failed to start MCP server',
@@ -122,75 +157,36 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 // POST endpoint for sending MCP messages
 app.post('/sse/messages', authenticateRequest, async (req, res) => {
   // Log incoming request for debugging
-  console.log('[POST] Received request:', {
-    body: req.body,
-    query: req.query,
-    headers: {
-      'content-type': req.headers['content-type'],
-      'authorization': req.headers.authorization ? 'Bearer [REDACTED]' : 'none',
-      'x-session-id': req.headers['x-session-id']
-    }
+  console.log('[POST] Received MCP message:', {
+    method: req.body.method,
+    id: req.body.id,
+    hasParams: !!req.body.params,
   });
 
-  // Try to get sessionId from multiple sources
-  let sessionId = req.body.sessionId || req.query.sessionId || req.headers['x-session-id'];
+  // Body should be the JSON-RPC message directly
+  const message = req.body;
 
-  // If body is directly a JSON-RPC message, treat entire body as message
-  let message = req.body.message || (req.body.jsonrpc ? req.body : null);
-
-  // Validate request
-  if (!sessionId) {
-    console.error('[POST] Missing sessionId. Checked body, query, and headers');
-    res.status(400).json({
-      error: 'Bad Request',
-      message: 'Missing "sessionId" - tried body, query params, and x-session-id header',
-      receivedFields: {
-        bodyKeys: Object.keys(req.body),
-        queryKeys: Object.keys(req.query),
-        hasSessionHeader: !!req.headers['x-session-id']
-      }
-    });
-    return;
-  }
-
-  if (!message) {
-    console.error('[POST] Missing message in request');
-    res.status(400).json({
-      error: 'Bad Request',
-      message: 'Missing MCP message in request body',
-    });
-    return;
-  }
-
-  // Validate MCP message format
+  // Validate JSON-RPC format
   if (!message.jsonrpc || message.jsonrpc !== '2.0') {
     console.error('[POST] Invalid JSON-RPC format:', message);
     res.status(400).json({
       error: 'Bad Request',
-      message: 'Invalid MCP message format (missing or invalid jsonrpc field)',
+      message: 'Invalid JSON-RPC message (missing or invalid jsonrpc field)',
     });
     return;
   }
 
   try {
-    // Get session
-    const session = sessionManager.getSession(sessionId);
-    if (!session) {
-      res.status(404).json({
-        error: 'Not Found',
-        message: `Session ${sessionId} not found or expired`,
-      });
-      return;
-    }
+    // Get or create global MCP wrapper
+    const wrapper = await getOrCreateMCPWrapper();
 
     // Forward message to MCP server
-    console.log(`[POST] Forwarding message to session ${sessionId}:`, message.method || 'notification');
-    sessionManager.sendMessage(sessionId, message);
+    console.log(`[POST] Forwarding to MCP server: ${message.method || 'notification'}`);
+    wrapper.sendMessage(message);
 
     // Acknowledge receipt
     res.json({
       status: 'ok',
-      message: 'Message forwarded to MCP server',
     });
 
   } catch (error) {
