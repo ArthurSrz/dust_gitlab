@@ -23,5 +23,5 @@ Thumbs.db
 *.swp
 *.swo
 
-# Vercel
-.vercel
+# Claude session files
+.claude/

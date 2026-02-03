@@ -1,261 +1,169 @@
-# Dust-GitLab MCP Integration
+# Dust.tt ↔ GitLab MCP Server
 
-HTTP/SSE wrapper for the official GitLab MCP server, enabling Dust.tt to query GitLab data (projects, issues, merge requests, commits, files).
+Connect Dust.tt AI agents to your GitLab projects. Query issues, merge requests, files, and more using natural language.
 
-## Architecture
+## Quick Setup (5 minutes)
 
-```
-Dust.tt → HTTPS/SSE → Railway/Vercel → stdio bridge → @modelcontextprotocol/server-gitlab → GitLab API
-```
+### 1. Get a GitLab Personal Access Token
 
-This wrapper bridges the official stdio-based GitLab MCP server to HTTP/SSE transport required by Dust.tt.
+1. Go to [GitLab → Settings → Access Tokens](https://gitlab.com/-/user_settings/personal_access_tokens)
+2. Click **Add new token**
+3. Name: `dust-mcp-server`
+4. Select scopes:
+   - ✅ `api` (Full API access)
+   - ✅ `read_repository` (Read files)
+5. Click **Create** and copy the token (starts with `glpat-`)
 
-**Recommended Platform**: Railway (no timeout limits for SSE connections)
-**Alternative**: Vercel (10s timeout on free tier may affect long-running queries)
+### 2. Deploy to Railway
 
-## Features
+Railway provides free hosting with no timeout limits (perfect for SSE connections).
 
-- ✅ Complete GitLab API coverage (15+ operations)
-- ✅ Secure Bearer token authentication
-- ✅ SSE (Server-Sent Events) transport
-- ✅ Easy Vercel deployment
-- ✅ Environment-based configuration
+1. **Fork this repository** to your GitHub account
 
-## Quick Start
+2. **Deploy to Railway:**
+   - Go to [railway.app](https://railway.app)
+   - Click **New Project** → **Deploy from GitHub repo**
+   - Select your forked `dust_gitlab` repo
+   - Railway will auto-detect and deploy
 
-### Prerequisites
-
-- Node.js 18+
-- GitLab Personal Access Token with `api` scope
-- (Optional) Vercel account for deployment
-
-### Local Development
-
-1. **Clone and install dependencies**
-   ```bash
-   cd /Users/arthursarazin/Documents/dust_gitlab
-   npm install
+3. **Add environment variables** in Railway dashboard:
    ```
-
-2. **Create `.env` file**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and add your credentials:
-   ```env
    GITLAB_PERSONAL_ACCESS_TOKEN=glpat-xxxxxxxxxxxxx
    GITLAB_API_URL=https://gitlab.com/api/v4
    MCP_AUTH_SECRET=your-random-secret-here
+   NODE_ENV=production
    ```
 
-3. **Run locally**
-   ```bash
-   npm run dev
-   ```
+   > 💡 For `MCP_AUTH_SECRET`, use a random string (e.g., from `openssl rand -base64 32`)
 
-   Server starts at `http://localhost:3000`
+4. **Get your server URL:**
+   - Railway Settings → Networking → **Generate Domain**
+   - Copy the URL: `https://your-project.up.railway.app`
 
-4. **Test the connection**
-   ```bash
-   # Health check (no auth)
-   curl http://localhost:3000/health
-
-   # SSE endpoint (requires auth)
-   curl -H "Authorization: Bearer your-random-secret-here" \
-        http://localhost:3000/sse
-   ```
-
-### Deploy to Railway (Recommended)
-
-Railway provides persistent processes with no timeout limits, ideal for SSE connections.
-
-1. **Connect GitHub repository**
-   - Go to [railway.app](https://railway.app)
-   - Click "New Project" → "Deploy from GitHub repo"
-   - Select `ArthurSrz/dust_gitlab`
-
-2. **Configure environment variables** in Railway dashboard:
-   - `GITLAB_PERSONAL_ACCESS_TOKEN`: Your GitLab PAT
-   - `GITLAB_API_URL`: `https://gitlab.com/api/v4`
-   - `MCP_AUTH_SECRET`: Random secret for Dust.tt auth
-   - `NODE_ENV`: `production`
-
-3. **Generate public domain**
-   - Railway Settings → Networking → Generate Domain
-   - Get URL: `https://your-project.up.railway.app`
-
-4. **Verify deployment**
+5. **Verify deployment:**
    ```bash
    curl https://your-project.up.railway.app/health
    ```
+   Should return: `{"status":"ok","service":"dust-gitlab-mcp",...}`
 
-See [RAILWAY_DEPLOYMENT.md](./RAILWAY_DEPLOYMENT.md) for detailed instructions.
+### 3. Connect to Dust.tt
 
-### Alternative: Deploy to Vercel
-
-⚠️ **Note**: Vercel free tier has 10s timeout which may affect SSE connections.
-
-1. **Install Vercel CLI**: `npm i -g vercel`
-2. **Set environment variables**: `vercel env add GITLAB_PERSONAL_ACCESS_TOKEN`
-3. **Deploy**: `vercel --prod`
-4. **Get endpoint**: `https://your-project.vercel.app/sse`
-
-### Connect to Dust.tt
-
-1. Navigate to **Dust.tt → Spaces → Tools → Add Tool**
+1. Open [Dust.tt](https://dust.tt) → **Spaces** → **Tools** → **Add Tool**
 2. Select **Remote MCP Server**
 3. Configure:
-   - **URL**: `https://your-project.vercel.app/sse`
-   - **Authentication**: Bearer token (your `MCP_AUTH_SECRET`)
-4. Let Dust.tt auto-discover available GitLab tools
-5. Test in a Dust Agent workflow
+   - **Name**: `GitLab`
+   - **URL**: `https://your-project.up.railway.app/sse`
+   - **Authentication Type**: `Bearer Token`
+   - **Token**: Your `MCP_AUTH_SECRET` value
+4. Click **Test Connection** (should succeed in ~5 seconds)
+5. Click **Save**
 
-## Available GitLab Operations
+### 4. Test It!
+
+In a Dust Agent, try:
+- "List my GitLab projects"
+- "Show open issues in project X"
+- "Get the README from project Y"
+- "What are the recent commits in project Z?"
+
+## Available GitLab Tools
 
 Once connected, Dust.tt agents can use these tools:
 
-### Projects
-- `list_projects` - List all accessible projects
-- `get_project` - Get project details by ID
-- `search_projects` - Search projects by name
+| Tool | Description |
+|------|-------------|
+| `create_or_update_file` | Create or update files in a repository |
+| `search_repositories` | Search for repositories by name or description |
+| `create_repository` | Create a new GitLab repository |
+| `get_file_contents` | Read file contents from a repository |
+| `push_files` | Push multiple files to a repository |
+| `create_issue` | Create a new issue |
+| `create_merge_request` | Create a new merge request |
+| `fork_repository` | Fork an existing repository |
+| `create_branch` | Create a new branch |
 
-### Issues
-- `list_issues` - List issues for a project
-- `get_issue` - Get issue details
-- `create_issue` - Create new issue
-- `update_issue` - Update existing issue
+## Local Development
 
-### Merge Requests
-- `list_merge_requests` - List merge requests
-- `get_merge_request` - Get MR details
-- `create_merge_request` - Create new MR
+Want to test locally before deploying?
 
-### Repository
-- `list_files` - List files in repository
-- `get_file_contents` - Read file contents
-- `search_code` - Search code in repositories
+```bash
+# Clone and install
+git clone https://github.com/YourUsername/dust_gitlab.git
+cd dust_gitlab
+npm install
 
-### Commits
-- `list_commits` - List commits
-- `get_commit` - Get commit details
-- `get_commit_diff` - Get commit diff
+# Create .env file
+cp .env.example .env
+# Edit .env and add your credentials
 
-### Branches
-- `list_branches` - List branches
-- `get_branch` - Get branch details
-- `create_branch` - Create new branch
+# Run locally
+npm run dev
+# Server starts at http://localhost:3000
 
-### Pipelines
-- `list_pipelines` - List CI/CD pipelines
-- `get_pipeline_status` - Get pipeline status
+# Test
+curl http://localhost:3000/health
+```
 
-## Configuration
+## How It Works
 
-### Environment Variables
+```
+┌─────────┐    HTTPS/SSE    ┌─────────┐    stdio    ┌──────────────┐
+│ Dust.tt │ ←────────────→  │ Railway │ ←────────→  │ GitLab MCP   │
+└─────────┘                  └─────────┘             │ Server       │
+                                                      └──────────────┘
+                                                            ↓
+                                                      ┌──────────────┐
+                                                      │ GitLab API   │
+                                                      └──────────────┘
+```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITLAB_PERSONAL_ACCESS_TOKEN` | Yes | GitLab PAT with `api` scope |
-| `GITLAB_API_URL` | Yes | GitLab API URL (default: `https://gitlab.com/api/v4`) |
-| `MCP_AUTH_SECRET` | Yes | Secret for Dust.tt authentication |
-| `PORT` | No | Local server port (default: 3000) |
-| `NODE_ENV` | No | Environment (`development` or `production`) |
-
-### Creating GitLab Personal Access Token
-
-1. Go to **GitLab → Preferences → Access Tokens**
-2. Click **Add new token**
-3. Name: `dust-mcp-server`
-4. Scopes:
-   - ✅ `api` - Full API access
-   - ✅ `read_repository` - Read repository files
-5. Copy the token (starts with `glpat-`)
-
-## Security
-
-- **GitLab PAT**: Stored in Vercel environment variables (encrypted at rest)
-- **MCP Auth**: Bearer token validates Dust.tt requests
-- **Scoped Access**: Token limited to your GitLab account permissions
-- **HTTPS**: All communication encrypted in transit
-- **Rate Limiting**: GitLab free tier allows 5,000 requests/minute
+This server bridges the official stdio-based [GitLab MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab) to HTTP/SSE transport required by Dust.tt.
 
 ## Troubleshooting
 
-### "Authentication failed"
-- Verify GitLab token is valid and has correct scopes
-- Check token hasn't expired
+**"Authentication failed"**
+- Verify your GitLab token is valid and hasn't expired
+- Check token has `api` and `read_repository` scopes
 
-### "Cannot access Veltys projects"
-- Verify you're a member of the Veltys GitLab organization
-- Check token permissions
+**"Connection timeout"**
+- Make sure you're using Railway (not Vercel free tier which has 10s limits)
+- Check Railway logs for errors
 
-### "SSE connection drops"
-- Vercel free tier has 10s timeout for serverless functions
-- May need pagination for large queries
+**"Can't access my projects"**
+- Verify you're a member of the GitLab projects/groups
+- Check your GitLab token permissions
 
-### "Rate limit exceeded"
-- GitLab API has rate limits (5,000 req/min on free tier)
-- Implement caching or reduce query frequency
+**"Tools not discovered"**
+- Ensure the SSE endpoint URL is correct: `https://your-project.up.railway.app/sse`
+- Verify Bearer token matches your `MCP_AUTH_SECRET`
+- Check Railway logs for connection errors
 
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
 dust_gitlab/
 ├── src/
-│   ├── index.ts          # Main HTTP/SSE server
+│   ├── index.ts          # HTTP/SSE server
 │   └── mcp-wrapper.ts    # stdio-to-SSE bridge
-├── dist/                 # Compiled output
-├── package.json
-├── tsconfig.json
-├── vercel.json          # Vercel deployment config
-└── .env                 # Local environment variables (not committed)
+├── .env.example          # Environment template
+├── package.json          # Dependencies
+├── railway.json          # Railway deployment config
+└── tsconfig.json         # TypeScript config
 ```
 
-### Scripts
+## Security
 
-- `npm run dev` - Start local development server
-- `npm run build` - Build TypeScript to JavaScript
-- `npm run type-check` - Check TypeScript types
+- 🔒 GitLab tokens encrypted in Railway environment variables
+- 🔑 Bearer token authentication for Dust.tt requests
+- 🚀 HTTPS only (Railway provides SSL automatically)
+- 👤 Token scoped to your GitLab account permissions
 
-### Testing Locally
+## Support
 
-Test with Claude Desktop before deploying:
-
-1. Add to `~/.claude/config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "gitlab": {
-         "command": "npx",
-         "args": ["@modelcontextprotocol/server-gitlab"],
-         "env": {
-           "GITLAB_PERSONAL_ACCESS_TOKEN": "glpat-xxxxxxxxxxxxx",
-           "GITLAB_API_URL": "https://gitlab.com/api/v4"
-         }
-       }
-     }
-   }
-   ```
-
-2. Restart Claude Desktop
-3. Test commands:
-   - "List all Veltys projects"
-   - "Show me issues in project X"
-   - "Get the contents of README.md from project Y"
-
-## API Reference
-
-See [API_REFERENCE.md](./API_REFERENCE.md) for detailed documentation of all available GitLab operations.
+- 📖 [Model Context Protocol Documentation](https://modelcontextprotocol.io)
+- 🔧 [GitLab MCP Server Source](https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab)
+- 💬 Open an issue for bugs or questions
 
 ## License
 
 MIT
-
-## Support
-
-For issues or questions:
-- Create an issue in this repository
-- Check [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for common problems
