@@ -168,42 +168,6 @@ export class MCPWrapper extends EventEmitter {
   }
 
   /**
-   * Send a request and wait for the response
-   */
-  async request(method: string, params?: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const id = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-      const timeout = setTimeout(() => {
-        this.removeListener('message', messageHandler);
-        reject(new Error(`Request timeout: ${method}`));
-      }, 30000); // 30 second timeout
-
-      const messageHandler = (message: MCPMessage) => {
-        if (message.id === id) {
-          clearTimeout(timeout);
-          this.removeListener('message', messageHandler);
-
-          if (message.error) {
-            reject(new Error(`MCP Error: ${message.error.message}`));
-          } else {
-            resolve(message.result);
-          }
-        }
-      };
-
-      this.on('message', messageHandler);
-
-      this.sendMessage({
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      });
-    });
-  }
-
-  /**
    * Stop the MCP server process
    */
   async stop(): Promise<void> {

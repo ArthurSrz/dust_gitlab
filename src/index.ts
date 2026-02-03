@@ -22,7 +22,6 @@ app.use(express.json());
 
 // Global MCP wrapper instance (single-session model)
 let globalMCPWrapper: MCPWrapper | null = null;
-let currentSSEResponse: Response | null = null;
 
 /**
  * Get or create the global MCP wrapper instance
@@ -90,7 +89,6 @@ app.get('/health', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     mcpRunning: globalMCPWrapper?.isRunning() || false,
-    sseConnected: currentSSEResponse !== null,
   });
 });
 
@@ -114,26 +112,16 @@ app.get('/sse', authenticateRequest, async (req, res) => {
     // Get or create global MCP wrapper
     const wrapper = await getOrCreateMCPWrapper();
 
-    // Store current SSE connection
-    currentSSEResponse = res;
-
     // Forward MCP messages to this SSE client
     const messageHandler = (message: any) => {
       res.write(`event: message\n`);
       res.write(`data: ${JSON.stringify(message)}\n\n`);
-      // Explicitly flush to ensure immediate delivery
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
     };
 
     const errorHandler = (error: Error) => {
       console.error('[SSE] MCP error:', error.message);
       res.write(`event: error\n`);
       res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-      if (typeof (res as any).flush === 'function') {
-        (res as any).flush();
-      }
     };
 
     wrapper.on('message', messageHandler);
@@ -146,7 +134,6 @@ app.get('/sse', authenticateRequest, async (req, res) => {
       console.log('[SSE] Client disconnected');
       wrapper.removeListener('message', messageHandler);
       wrapper.removeListener('error', errorHandler);
-      currentSSEResponse = null;
     });
 
   } catch (error) {
@@ -213,8 +200,7 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
   });
 });
 
-// Start server (works for both Railway and local development)
-// Railway and Vercel both provide PORT via environment variable
+// Start server (Railway provides PORT via environment variable)
 app.listen(PORT, () => {
   console.log(`✅ Dust-GitLab MCP Server running on port ${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -222,6 +208,3 @@ app.listen(PORT, () => {
   console.log(`   SSE endpoint: /sse`);
   console.log(`   Messages endpoint: POST /sse/messages`);
 });
-
-// Also export for Vercel serverless compatibility
-export default app;
