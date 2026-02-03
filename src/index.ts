@@ -13,6 +13,7 @@ import { MCPWrapper, MCPMessage } from './mcp-wrapper.js';
 config();
 
 const app = express();
+// Railway provides PORT environment variable, fallback to 3000 for local dev
 const PORT = process.env.PORT || 3000;
 
 // Middleware
@@ -184,14 +185,14 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
   });
 });
 
-// Start server for local development
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`✅ Dust-GitLab MCP Server running on http://localhost:${PORT}`);
-    console.log(`   Health check: http://localhost:${PORT}/health`);
-    console.log(`   SSE endpoint: http://localhost:${PORT}/sse`);
-  });
-}
+// Start server (works for both Railway and local development)
+// Railway and Vercel both provide PORT via environment variable
+app.listen(PORT, () => {
+  console.log(`✅ Dust-GitLab MCP Server running on port ${PORT}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   Health check: /health`);
+  console.log(`   SSE endpoint: /sse`);
+});
 
-// Export for Vercel serverless
+// Also export for Vercel serverless compatibility
 export default app;
