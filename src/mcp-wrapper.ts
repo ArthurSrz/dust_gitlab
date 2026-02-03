@@ -27,11 +27,12 @@ export class MCPWrapper extends EventEmitter {
     if (this.process) throw new Error('Already running');
 
     return new Promise((resolve, reject) => {
-      this.process = spawn('npx', ['--yes', '@infochamp/gitlab-mcp-server'], {
+      // Using official GitLab MCP server (community packages have dependency issues)
+      this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
         env: {
           ...process.env,
-          GITLAB_TOKEN: this.token,
-          GITLAB_URL: this.apiUrl.replace('/api/v4', ''),
+          GITLAB_PERSONAL_ACCESS_TOKEN: this.token,
+          GITLAB_API_URL: this.apiUrl,
           npm_config_loglevel: 'error',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
