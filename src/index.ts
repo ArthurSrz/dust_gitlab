@@ -169,11 +169,18 @@ function fixToolCallParameters(message: any): any {
   const toolName = message.params?.name;
   const args = message.params?.arguments || {};
 
-  // Fix project_id -> project (common mistake)
-  if (args.project_id && !args.project) {
-    console.log('[FIX] Translating project_id -> project');
-    args.project = args.project_id;
-    delete args.project_id;
+  // Fix project -> project_id (GitLab MCP server expects project_id)
+  if (args.project && !args.project_id) {
+    console.log('[FIX] Translating project -> project_id');
+    args.project_id = args.project;
+    delete args.project;
+  }
+
+  // Fix path -> file_path (some tools use different naming)
+  if (toolName === 'get_file_contents' && args.path && !args.file_path) {
+    console.log('[FIX] Translating path -> file_path');
+    args.file_path = args.path;
+    delete args.path;
   }
 
   // Validate get_file_contents tool
@@ -188,6 +195,14 @@ function fixToolCallParameters(message: any): any {
     if (isDirLike) {
       console.warn(`[WARN] Possible directory path in get_file_contents: "${filePath}"`);
       console.warn('[WARN] This tool only works for files. If you need directory contents, the API will return 404.');
+    }
+
+    // Ensure required parameters are present
+    if (!args.project_id) {
+      console.error('[ERROR] Missing required parameter: project_id');
+    }
+    if (!filePath) {
+      console.error('[ERROR] Missing required parameter: file_path');
     }
   }
 
