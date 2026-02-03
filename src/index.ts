@@ -98,16 +98,11 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     console.log(`[SSE] Session ${sessionId} created successfully`);
 
-    // Send initial connection event with session ID and endpoint
-    res.write(`event: endpoint\n`);
-    res.write(`data: /sse/messages\n\n`);
-    res.write(`event: message\n`);
+    // Send initial connection event with session ID
+    // Keep it simple for Dust.tt compatibility
+    res.write(`event: connected\n`);
     res.write(`data: ${JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'session/created',
-      params: {
-        sessionId: sessionId
-      }
+      sessionId: sessionId
     })}\n\n`);
 
     // Handle client disconnect
@@ -129,13 +124,24 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
 // POST endpoint for sending MCP messages
 app.post('/sse/messages', authenticateRequest, async (req, res) => {
+  // Log incoming request for debugging
+  console.log('[POST] Received request:', {
+    body: req.body,
+    headers: {
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers.authorization ? 'Bearer [REDACTED]' : 'none'
+    }
+  });
+
   const { sessionId, message } = req.body;
 
   // Validate request
   if (!sessionId) {
+    console.error('[POST] Missing sessionId in request body:', req.body);
     res.status(400).json({
       error: 'Bad Request',
       message: 'Missing "sessionId" field in request body',
+      receivedFields: Object.keys(req.body)
     });
     return;
   }
