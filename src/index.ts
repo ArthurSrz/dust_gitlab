@@ -98,20 +98,9 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     console.log(`[SSE] Session ${sessionId} created successfully`);
 
-    // Send endpoint first (tells client where to POST messages)
+    // Send endpoint URL where client should POST messages
     res.write(`event: endpoint\n`);
-    res.write(`data: ${req.protocol}://${req.get('host')}/sse/messages\n\n`);
-
-    // Then send session info
-    res.write(`event: message\n`);
-    res.write(`data: ${JSON.stringify({
-      jsonrpc: '2.0',
-      id: null,
-      result: {
-        sessionId: sessionId,
-        capabilities: {}
-      }
-    })}\n\n`);
+    res.write(`data: /sse/messages\n\n`);
 
     // Handle client disconnect
     req.on('close', async () => {
@@ -135,35 +124,47 @@ app.post('/sse/messages', authenticateRequest, async (req, res) => {
   // Log incoming request for debugging
   console.log('[POST] Received request:', {
     body: req.body,
+    query: req.query,
     headers: {
       'content-type': req.headers['content-type'],
-      'authorization': req.headers.authorization ? 'Bearer [REDACTED]' : 'none'
+      'authorization': req.headers.authorization ? 'Bearer [REDACTED]' : 'none',
+      'x-session-id': req.headers['x-session-id']
     }
   });
 
-  const { sessionId, message } = req.body;
+  // Try to get sessionId from multiple sources
+  let sessionId = req.body.sessionId || req.query.sessionId || req.headers['x-session-id'];
+
+  // If body is directly a JSON-RPC message, treat entire body as message
+  let message = req.body.message || (req.body.jsonrpc ? req.body : null);
 
   // Validate request
   if (!sessionId) {
-    console.error('[POST] Missing sessionId in request body:', req.body);
+    console.error('[POST] Missing sessionId. Checked body, query, and headers');
     res.status(400).json({
       error: 'Bad Request',
-      message: 'Missing "sessionId" field in request body',
-      receivedFields: Object.keys(req.body)
+      message: 'Missing "sessionId" - tried body, query params, and x-session-id header',
+      receivedFields: {
+        bodyKeys: Object.keys(req.body),
+        queryKeys: Object.keys(req.query),
+        hasSessionHeader: !!req.headers['x-session-id']
+      }
     });
     return;
   }
 
   if (!message) {
+    console.error('[POST] Missing message in request');
     res.status(400).json({
       error: 'Bad Request',
-      message: 'Missing "message" field in request body',
+      message: 'Missing MCP message in request body',
     });
     return;
   }
 
   // Validate MCP message format
   if (!message.jsonrpc || message.jsonrpc !== '2.0') {
+    console.error('[POST] Invalid JSON-RPC format:', message);
     res.status(400).json({
       error: 'Bad Request',
       message: 'Invalid MCP message format (missing or invalid jsonrpc field)',
