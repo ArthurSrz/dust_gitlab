@@ -82,6 +82,21 @@ Once connected, Dust.tt agents can use these tools:
 | `fork_repository` | Fork an existing repository |
 | `create_branch` | Create a new branch |
 
+### ⚠️ Known Limitation: No Directory Listing
+
+**The current GitLab MCP server (`@modelcontextprotocol/server-gitlab`) cannot list directory contents.**
+
+- ❌ Can't browse repository file structure
+- ❌ Can't list files in a directory
+- ✅ Can read individual files (if you know the exact path)
+
+**Workaround:** Ask for specific files:
+- "Get the README.md from project X"
+- "Get the package.json from project X"
+- "Get the src/index.ts file from project X"
+
+**Better Solution:** Upgrade to a community implementation with directory listing support. See [Upgrading](#upgrading-to-a-better-gitlab-mcp-server) below.
+
 ## Local Development
 
 Want to test locally before deploying?
@@ -206,6 +221,59 @@ dust_gitlab/
 - 🔑 Bearer token authentication for Dust.tt requests
 - 🚀 HTTPS only (Railway provides SSL automatically)
 - 👤 Token scoped to your GitLab account permissions
+
+## Upgrading to a Better GitLab MCP Server
+
+The official `@modelcontextprotocol/server-gitlab` has limitations. For better functionality (especially directory listing), switch to a community implementation:
+
+### Recommended Alternatives
+
+**1. gitlab-mcp** (by unadlib)
+- Package: `gitlab-mcp`
+- Features: Enhanced file operations, better error handling
+- Published: 2025-05-14
+
+**2. @infochamp/gitlab-mcp-server**
+- Package: `@infochamp/gitlab-mcp-server`
+- Features: Comprehensive GitLab API coverage
+- Published: 2026-02-03 (latest!)
+
+**3. @yoda.digital/gitlab-mcp-server**
+- Package: `@yoda.digital/gitlab-mcp-server`
+- Features: Full GitLab integration
+- Published: 2025-04-10
+
+### How to Upgrade
+
+**1. Edit `src/mcp-wrapper.ts`**
+
+Change line 47:
+```typescript
+// From:
+this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
+
+// To (choose one):
+this.process = spawn('npx', ['--yes', 'gitlab-mcp'], {
+// OR
+this.process = spawn('npx', ['--yes', '@infochamp/gitlab-mcp-server'], {
+// OR
+this.process = spawn('npx', ['--yes', '@yoda.digital/gitlab-mcp-server'], {
+```
+
+**2. Build and deploy:**
+```bash
+npm run build
+git add -A
+git commit -m "Upgrade to better GitLab MCP server with directory listing"
+git push origin main
+```
+
+**3. Test in Dust.tt:**
+After Railway deploys (~1-2 min), reconnect in Dust.tt and try:
+- "List all files in project X"
+- "Show me the directory structure of project Y"
+
+The new tools should include `list_repository_tree` or similar!
 
 ## Support
 
