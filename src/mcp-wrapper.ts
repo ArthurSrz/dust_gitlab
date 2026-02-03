@@ -43,8 +43,9 @@ export class MCPWrapper extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       // Spawn the GitLab MCP server with environment variables
-      // Use npx with --no flag to suppress warnings
-      this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
+      // Using @infochamp/gitlab-mcp-server for enhanced features (directory listing, etc.)
+      // More comprehensive than official @modelcontextprotocol/server-gitlab
+      this.process = spawn('npx', ['--yes', '@infochamp/gitlab-mcp-server'], {
         env: {
           ...process.env,
           GITLAB_PERSONAL_ACCESS_TOKEN: this.gitlabToken,
