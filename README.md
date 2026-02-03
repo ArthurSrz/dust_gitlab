@@ -143,10 +143,11 @@ This server bridges the official stdio-based [GitLab MCP server](https://github.
 
 This means the GitLab API couldn't find what you asked for. Common causes:
 
-1. **Wrong project path/ID**
-   - ✅ Correct: `group/project-name` or `12345678` (project ID)
-   - ❌ Wrong: `project-name` (missing group), `group/repo` (wrong name)
+1. **Wrong project path/ID or parameter name**
+   - ✅ Correct: `project_id: "group/project-name"` or `project_id: "12345678"`
+   - ❌ Wrong: `project-name` (missing group), `group/repo` (wrong name), `project: "..."` (wrong param name)
    - **Fix**: Go to your GitLab project → Settings → General → copy the full path
+   - **Note**: Parameter must be named `project_id` (the wrapper will auto-fix `project` if used)
 
 2. **File doesn't exist**
    - ✅ Correct: `README.md`, `src/index.ts`
@@ -165,10 +166,12 @@ This means the GitLab API couldn't find what you asked for. Common causes:
 ```
 Tool: get_file_contents
 Inputs:
-  - project: "mygroup/myproject"  (or project ID: "12345678")
+  - project_id: "mygroup/myproject"  (or numeric ID: "12345678")
   - file_path: "README.md"
   - ref: "main"  (optional, defaults to default branch)
 ```
+
+**Note**: The parameter is called `project_id` (not `project`). The wrapper will auto-fix if you use `project` instead.
 
 **Debug tips:**
 1. Check Railway logs to see the exact parameters being sent
