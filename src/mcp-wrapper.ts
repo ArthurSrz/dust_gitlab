@@ -27,7 +27,6 @@ export class MCPWrapper extends EventEmitter {
     if (this.process) throw new Error('Already running');
 
     return new Promise((resolve, reject) => {
-      // Using official GitLab MCP server (community packages have dependency issues)
       this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
         env: {
           ...process.env,
@@ -48,7 +47,7 @@ export class MCPWrapper extends EventEmitter {
             try {
               this.emit('message', JSON.parse(line));
             } catch (e) {
-              console.error('[Parse error]', line);
+              // Not JSON - ignore (might be startup log)
             }
           }
         }
@@ -56,28 +55,49 @@ export class MCPWrapper extends EventEmitter {
 
       this.process.stderr?.on('data', (data: Buffer) => {
         const text = data.toString().trim();
-        if (text.toLowerCase().includes('error')) {
-          console.error('[MCP]', text);
+        if (!text) return;
+
+        const lower = text.toLowerCase();
+
+        // Only treat as fatal error if it's a real crash
+        const isFatalError =
+          lower.includes('throw err') ||
+          lower.includes('cannot find module') ||
+          lower.includes('fatal') ||
+          lower.includes('enoent') ||
+          (lower.includes('error:') && !lower.includes('gitlab'));
+
+        if (isFatalError) {
+          console.error('[MCP Fatal]', text);
           this.emit('error', new Error(text));
+        } else {
+          // Just log non-fatal stderr (startup info, warnings, etc.)
+          console.log('[MCP]', text.substring(0, 200));
         }
       });
 
       this.process.on('exit', (code, signal) => {
+        console.log(`[MCP] Exited: code=${code}, signal=${signal}`);
         this.process = null;
         this.ready = false;
         this.emit('exit', { code, signal });
       });
 
-      this.process.on('error', reject);
+      this.process.on('error', (err) => {
+        console.error('[MCP] Process error:', err);
+        reject(err);
+      });
 
+      // Wait for process to start
       setTimeout(() => {
         if (this.process && !this.process.killed) {
           this.ready = true;
+          console.log('[MCP] Ready');
           resolve();
         } else {
           reject(new Error('Failed to start'));
         }
-      }, 1000);
+      }, 2000); // Increased timeout for npm install
     });
   }
 
