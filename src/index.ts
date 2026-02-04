@@ -231,6 +231,16 @@ app.use((err: Error, _req: Request, res: Response, _next: Function) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ MCP Server on port ${PORT}`);
+
+  // Pre-warm MCP wrapper on startup so it's ready when Dust.tt connects
+  console.log('[Startup] Pre-warming MCP wrapper...');
+  try {
+    await getOrCreateMCPWrapper();
+    console.log('[Startup] MCP wrapper ready - server fully initialized');
+  } catch (error) {
+    console.error('[Startup] Failed to pre-warm MCP wrapper:', error);
+    // Don't exit - let it retry on first request
+  }
 });
