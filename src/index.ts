@@ -5,6 +5,7 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 import { config } from 'dotenv';
 import { MCPWrapper } from './mcp-wrapper.js';
 
@@ -27,6 +28,10 @@ app.use((req, res, next) => {
 
 let globalMCPWrapper: MCPWrapper | null = null;
 let wrapperCreationPromise: Promise<MCPWrapper> | null = null;
+
+// Session management for MCP Streamable HTTP protocol (2025-03-26+)
+// Dust.tt uses protocol version 2025-06-18 which expects this header
+const sessionStore = new Map<string, { createdAt: Date; lastActivity: Date }>();
 
 async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
   // If already running, return it
@@ -97,13 +102,31 @@ app.get('/health', (_, res) => {
 // SSE endpoint
 app.get('/sse', auth, async (req, res) => {
   console.log('[SSE] Auth passed, establishing connection');
+
+  // Generate session ID per MCP Streamable HTTP spec (2025-03-26+)
+  const sessionId = crypto.randomUUID();
+  sessionStore.set(sessionId, { createdAt: new Date(), lastActivity: new Date() });
+  console.log(`[SSE] Created session: ${sessionId}`);
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Mcp-Session-Id', sessionId);  // Required for protocol 2025-03-26+
   res.flushHeaders();
 
   res.write(`event: endpoint\ndata: /sse/messages\n\n`);
   console.log('[SSE] Sent endpoint event');
+
+  // SSE keepalive - send comment every 15 seconds to keep connection alive
+  const keepalive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+      console.log('[SSE] Sent keepalive ping');
+    } catch (e) {
+      console.log('[SSE] Keepalive failed, connection likely closed');
+      clearInterval(keepalive);
+    }
+  }, 15000);
 
   try {
     const wrapper = await getOrCreateMCPWrapper();
@@ -132,11 +155,17 @@ app.get('/sse', auth, async (req, res) => {
     wrapper.on('error', onError);
 
     req.on('close', () => {
-      console.log('[SSE] Connection closed by client');
+      console.log(`[SSE] Connection closed by client (session: ${sessionId})`);
+      console.log('[SSE] Connection duration:', Math.round((Date.now() - sessionStore.get(sessionId)!.createdAt.getTime()) / 1000), 'seconds');
+      clearInterval(keepalive);
+      sessionStore.delete(sessionId);
       wrapper.removeListener('message', onMessage);
       wrapper.removeListener('error', onError);
     });
   } catch (error) {
+    console.error('[SSE] Failed to initialize:', error);
+    clearInterval(keepalive);
+    sessionStore.delete(sessionId);
     res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to start MCP' })}\n\n`);
     res.end();
   }
@@ -175,6 +204,11 @@ app.post('/sse/messages', auth, async (req, res) => {
   // Step 1: Immediately log raw body to see what Dust.tt sends
   console.log('[POST] Raw body:', JSON.stringify(req.body));
   console.log('[POST] Body type:', typeof req.body, 'Keys:', Object.keys(req.body || {}));
+  console.log('[POST] Headers:', JSON.stringify({
+    'content-type': req.headers['content-type'],
+    'mcp-session-id': req.headers['mcp-session-id'],
+    'accept': req.headers['accept']
+  }));
 
   let msg = req.body;
 
@@ -232,6 +266,15 @@ app.post('/sse/messages', auth, async (req, res) => {
 
     const elapsed = Date.now() - startTime;
     console.log(`[Response] id=${msg.id} (${elapsed}ms): ${JSON.stringify(response).substring(0, 200)}...`);
+
+    // For initialize response, add Mcp-Session-Id header per MCP Streamable HTTP spec
+    // This tells Dust.tt (protocol 2025-06-18) that we support session management
+    if (msg.method === 'initialize') {
+      const sessionId = crypto.randomUUID();
+      res.setHeader('Mcp-Session-Id', sessionId);
+      console.log(`[Response] Added Mcp-Session-Id header: ${sessionId}`);
+    }
+
     res.json(response);
   } catch (error) {
     console.error('[Error]', error);
