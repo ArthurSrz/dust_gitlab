@@ -172,6 +172,10 @@ function fixParams(msg: any): any {
 
 // POST endpoint - handles JSON-RPC messages per MCP Streamable HTTP spec
 app.post('/sse/messages', auth, async (req, res) => {
+  // Step 1: Immediately log raw body to see what Dust.tt sends
+  console.log('[POST] Raw body:', JSON.stringify(req.body));
+  console.log('[POST] Body type:', typeof req.body, 'Keys:', Object.keys(req.body || {}));
+
   let msg = req.body;
 
   if (msg.method === 'tools/call') {
@@ -179,9 +183,14 @@ app.post('/sse/messages', auth, async (req, res) => {
     msg = fixParams(msg);
   } else if (msg.method) {
     console.log(`[Request] ${msg.method} id=${msg.id}`);
+  } else {
+    // Log when there's no method - this might be the issue
+    console.log('[POST] No method found in body. Has jsonrpc:', msg?.jsonrpc, 'Has id:', msg?.id);
   }
 
   if (msg.jsonrpc !== '2.0') {
+    // Step 2: Log validation failures with full context
+    console.log('[POST] Invalid JSON-RPC rejected. Body was:', JSON.stringify(msg));
     res.status(400).json({ error: 'Invalid JSON-RPC' });
     return;
   }
@@ -191,6 +200,8 @@ app.post('/sse/messages', auth, async (req, res) => {
 
     // Notifications (no id) and responses: just forward, return 202 Accepted
     if (msg.id === undefined) {
+      // Step 3: Log notifications separately
+      console.log('[Notification] method:', msg.method, 'params:', JSON.stringify(msg.params || {}).substring(0, 100));
       wrapper.sendMessage(msg);
       res.status(202).send();
       return;
