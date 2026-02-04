@@ -27,12 +27,17 @@ export class MCPWrapper extends EventEmitter {
     if (this.process) throw new Error('Already running');
 
     return new Promise((resolve, reject) => {
-      this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
+      this.process = spawn('npx', ['--yes', '@zereight/mcp-gitlab'], {
         env: {
           ...process.env,
           GITLAB_PERSONAL_ACCESS_TOKEN: this.token,
           GITLAB_API_URL: this.apiUrl,
           npm_config_loglevel: 'error',
+          // Optional zereight features
+          USE_GITLAB_WIKI: process.env.USE_GITLAB_WIKI || 'false',
+          USE_MILESTONE: process.env.USE_MILESTONE || 'false',
+          USE_PIPELINE: process.env.USE_PIPELINE || 'false',
+          GITLAB_READ_ONLY_MODE: process.env.GITLAB_READ_ONLY_MODE || 'false',
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
