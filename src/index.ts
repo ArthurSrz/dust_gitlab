@@ -132,18 +132,13 @@ app.get('/sse', auth, async (req, res) => {
     const wrapper = await getOrCreateMCPWrapper();
 
     const onMessage = (msg: any) => {
-      // Don't send responses via SSE - they're returned via POST response body
-      // Per MCP spec: "If server returns application/json, it MUST NOT also push via SSE"
-      if (msg.id !== undefined) {
-        return;
-      }
-
-      // Only server-initiated notifications go via SSE
+      // OLD SSE TRANSPORT: Forward ALL messages via SSE stream
+      // Dust.tt expects responses here, NOT in POST response body
       // Enhance 404 errors with context
       if (msg.error?.message?.includes('Not Found') && !msg.error.message.includes('Tip:')) {
         msg.error.message += ' | Tip: Check project path (group/project), file path, and branch name';
       }
-      console.log('[SSE] Forwarding server notification:', JSON.stringify(msg).substring(0, 100));
+      console.log('[SSE] Forwarding message:', JSON.stringify(msg).substring(0, 100));
       res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
     };
 
@@ -199,16 +194,10 @@ function fixParams(msg: any): any {
   return msg;
 }
 
-// POST endpoint - handles JSON-RPC messages per MCP Streamable HTTP spec
+// POST endpoint - OLD SSE TRANSPORT
+// Dust.tt expects: POST returns acknowledgment, response comes via SSE stream
 app.post('/sse/messages', auth, async (req, res) => {
-  // Step 1: Immediately log raw body to see what Dust.tt sends
   console.log('[POST] Raw body:', JSON.stringify(req.body));
-  console.log('[POST] Body type:', typeof req.body, 'Keys:', Object.keys(req.body || {}));
-  console.log('[POST] Headers:', JSON.stringify({
-    'content-type': req.headers['content-type'],
-    'mcp-session-id': req.headers['mcp-session-id'],
-    'accept': req.headers['accept']
-  }));
 
   let msg = req.body;
 
@@ -217,72 +206,23 @@ app.post('/sse/messages', auth, async (req, res) => {
     msg = fixParams(msg);
   } else if (msg.method) {
     console.log(`[Request] ${msg.method} id=${msg.id}`);
-  } else {
-    // Log when there's no method - this might be the issue
-    console.log('[POST] No method found in body. Has jsonrpc:', msg?.jsonrpc, 'Has id:', msg?.id);
   }
 
   if (msg.jsonrpc !== '2.0') {
-    // Step 2: Log validation failures with full context
-    console.log('[POST] Invalid JSON-RPC rejected. Body was:', JSON.stringify(msg));
+    console.log('[POST] Invalid JSON-RPC rejected');
     res.status(400).json({ error: 'Invalid JSON-RPC' });
     return;
   }
 
   try {
     const wrapper = await getOrCreateMCPWrapper();
-
-    // Notifications (no id) and responses: just forward, return 202 Accepted
-    if (msg.id === undefined) {
-      // Step 3: Log notifications separately
-      console.log('[Notification] method:', msg.method, 'params:', JSON.stringify(msg.params || {}).substring(0, 100));
-      wrapper.sendMessage(msg);
-      res.status(202).send();
-      return;
-    }
-
-    // Requests (have id): wait for response and return it
-    console.log(`[Request] Waiting for response to id=${msg.id}...`);
-    const startTime = Date.now();
-    const response = await new Promise<any>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        console.log(`[Timeout] No response for id=${msg.id} after 30s`);
-        wrapper.removeListener('message', handler);
-        reject(new Error('Timeout waiting for MCP response'));
-      }, 30000);
-
-      const handler = (response: any) => {
-        // Match response by id
-        if (response.id === msg.id) {
-          clearTimeout(timeout);
-          wrapper.removeListener('message', handler);
-          resolve(response);
-        }
-      };
-
-      wrapper.on('message', handler);
-      wrapper.sendMessage(msg);
-    });
-
-    const elapsed = Date.now() - startTime;
-    console.log(`[Response] id=${msg.id} (${elapsed}ms): ${JSON.stringify(response).substring(0, 200)}...`);
-
-    // For initialize response, add Mcp-Session-Id header per MCP Streamable HTTP spec
-    // This tells Dust.tt (protocol 2025-06-18) that we support session management
-    if (msg.method === 'initialize') {
-      const sessionId = crypto.randomUUID();
-      res.setHeader('Mcp-Session-Id', sessionId);
-      console.log(`[Response] Added Mcp-Session-Id header: ${sessionId}`);
-    }
-
-    res.json(response);
+    // OLD SSE: Just forward message, return immediately
+    // Response will be sent via SSE stream (onMessage handler)
+    wrapper.sendMessage(msg);
+    res.json({ status: 'ok' });
   } catch (error) {
     console.error('[Error]', error);
-    res.status(500).json({
-      jsonrpc: '2.0',
-      id: msg.id,
-      error: { code: -32603, message: 'Internal error' }
-    });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
