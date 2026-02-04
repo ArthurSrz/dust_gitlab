@@ -1,6 +1,8 @@
 # Dust.tt ↔ GitLab MCP Server
 
-Connect Dust.tt AI agents to your GitLab projects. Query issues, merge requests, files, and more using natural language.
+Connect Dust.tt AI agents to your GitLab projects with **98 tools** for comprehensive GitLab operations. Query issues, merge requests, files, pipelines, wikis, milestones and more using natural language.
+
+> **Powered by** [`@zereight/mcp-gitlab`](https://www.npmjs.com/package/@zereight/mcp-gitlab) - a community-maintained GitLab MCP server with enhanced functionality.
 
 ## Quick Setup (5 minutes)
 
@@ -66,36 +68,43 @@ In a Dust Agent, try:
 - "Get the README from project Y"
 - "What are the recent commits in project Z?"
 
-## Available GitLab Tools
+## Available GitLab Tools (98 Tools)
 
-Once connected, Dust.tt agents can use these tools:
+This server uses `@zereight/mcp-gitlab` which provides **98 tools** - significantly more than the official ~40 tools.
 
-| Tool | Description |
-|------|-------------|
-| `create_or_update_file` | Create or update files in a repository |
-| `search_repositories` | Search for repositories by name or description |
-| `create_repository` | Create a new GitLab repository |
-| `get_file_contents` | Read file contents from a repository |
-| `push_files` | Push multiple files to a repository |
-| `create_issue` | Create a new issue |
-| `create_merge_request` | Create a new merge request |
-| `fork_repository` | Fork an existing repository |
-| `create_branch` | Create a new branch |
+### Core Tools (Always Available)
 
-### ⚠️ Known Limitation: No Directory Listing
+| Category | Tools |
+|----------|-------|
+| **Repository** | `get_file_contents`, `create_or_update_file`, `push_files`, `search_repositories`, `create_repository`, `fork_repository`, `create_branch`, `list_repository_tree` |
+| **Issues** | `create_issue`, `list_issues`, `get_issue`, `update_issue`, `create_issue_note`, `list_issue_links` |
+| **Merge Requests** | `create_merge_request`, `list_merge_requests`, `get_merge_request`, `update_merge_request`, `merge_merge_request`, `list_merge_request_diffs` |
+| **Users & Groups** | `get_user`, `list_project_members`, `list_group_members`, `get_project`, `list_projects` |
+| **Commits** | `list_commits`, `get_commit`, `list_commit_diffs` |
+| **Branches & Tags** | `list_branches`, `get_branch`, `delete_branch`, `list_tags` |
 
-**The current GitLab MCP server (`@modelcontextprotocol/server-gitlab`) cannot list directory contents.**
+### Optional Feature Modules
 
-- ❌ Can't browse repository file structure
-- ❌ Can't list files in a directory
-- ✅ Can read individual files (if you know the exact path)
+Enable these via environment variables for additional tools:
 
-**Workaround:** Ask for specific files:
-- "Get the README.md from project X"
-- "Get the package.json from project X"
-- "Get the src/index.ts file from project X"
+| Feature | Env Variable | Tools Added |
+|---------|--------------|-------------|
+| **Wiki** | `USE_GITLAB_WIKI=true` | `list_wiki_pages`, `get_wiki_page`, `create_wiki_page`, `update_wiki_page`, `delete_wiki_page` |
+| **Pipelines** | `USE_PIPELINE=true` | `list_pipelines`, `get_pipeline`, `create_pipeline`, `cancel_pipeline`, `retry_pipeline`, `list_jobs`, `get_job_log` |
+| **Milestones** | `USE_MILESTONE=true` | `list_milestones`, `get_milestone`, `create_milestone`, `update_milestone`, `list_milestone_issues` |
 
-**Better Solution:** Upgrade to a community implementation with directory listing support. See [Upgrading](#upgrading-to-a-better-gitlab-mcp-server) below.
+### Security Feature
+
+| Feature | Env Variable | Description |
+|---------|--------------|-------------|
+| **Read-only Mode** | `GITLAB_READ_ONLY_MODE=true` | Disables all write operations - useful for restricted access scenarios |
+
+### ✅ Directory Listing Now Supported!
+
+Unlike the official server, `@zereight/mcp-gitlab` **supports directory listing**:
+- ✅ `list_repository_tree` - Browse repository file structure
+- ✅ Navigate directories and discover files
+- ✅ Full repository exploration
 
 ## Local Development
 
@@ -132,7 +141,7 @@ curl http://localhost:3000/health
                                                       └──────────────┘
 ```
 
-This server bridges the official stdio-based [GitLab MCP server](https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab) to HTTP/SSE transport required by Dust.tt.
+This server bridges the community [`@zereight/mcp-gitlab`](https://www.npmjs.com/package/@zereight/mcp-gitlab) MCP server (stdio-based) to HTTP/SSE transport required by Dust.tt. The zereight package provides 98 tools vs ~40 in the official server, with additional features like Wiki, Pipeline, and Milestone management.
 
 ## Troubleshooting
 
@@ -222,63 +231,47 @@ dust_gitlab/
 - 🚀 HTTPS only (Railway provides SSL automatically)
 - 👤 Token scoped to your GitLab account permissions
 
-## Upgrading to a Better GitLab MCP Server
+## Package Comparison
 
-The official `@modelcontextprotocol/server-gitlab` has limitations. For better functionality (especially directory listing), switch to a community implementation:
+This project uses `@zereight/mcp-gitlab` instead of the official server. Here's why:
 
-### Recommended Alternatives
+| Feature | Official (`@modelcontextprotocol/server-gitlab`) | This Project (`@zereight/mcp-gitlab`) |
+|---------|--------------------------------------------------|---------------------------------------|
+| **Tools** | ~40 | **98** |
+| **Directory Listing** | ❌ | ✅ `list_repository_tree` |
+| **Wiki API** | ❌ | ✅ (optional) |
+| **Pipeline Management** | ❌ | ✅ (optional) |
+| **Milestone Tracking** | ❌ | ✅ (optional) |
+| **Rate Limiting** | ❌ | ✅ Built-in |
+| **Connection Pooling** | ❌ | ✅ |
+| **Read-only Mode** | ❌ | ✅ |
+| **Native HTTP/SSE** | ❌ | ✅ (not used - we use wrapper) |
 
-**1. gitlab-mcp** (by unadlib)
-- Package: `gitlab-mcp`
-- Features: Enhanced file operations, better error handling
-- Published: 2025-05-14
+### Enabling Optional Features
 
-**2. @infochamp/gitlab-mcp-server**
-- Package: `@infochamp/gitlab-mcp-server`
-- Features: Comprehensive GitLab API coverage
-- Published: 2026-02-03 (latest!)
+To enable additional tools, set environment variables in Railway:
 
-**3. @yoda.digital/gitlab-mcp-server**
-- Package: `@yoda.digital/gitlab-mcp-server`
-- Features: Full GitLab integration
-- Published: 2025-04-10
-
-### How to Upgrade
-
-**1. Edit `src/mcp-wrapper.ts`**
-
-Change line 47:
-```typescript
-// From:
-this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
-
-// To (choose one):
-this.process = spawn('npx', ['--yes', 'gitlab-mcp'], {
-// OR
-this.process = spawn('npx', ['--yes', '@infochamp/gitlab-mcp-server'], {
-// OR
-this.process = spawn('npx', ['--yes', '@yoda.digital/gitlab-mcp-server'], {
-```
-
-**2. Build and deploy:**
 ```bash
-npm run build
-git add -A
-git commit -m "Upgrade to better GitLab MCP server with directory listing"
-git push origin main
+# Enable Wiki tools
+USE_GITLAB_WIKI=true
+
+# Enable Pipeline management
+USE_PIPELINE=true
+
+# Enable Milestone tracking
+USE_MILESTONE=true
+
+# Restrict to read-only operations
+GITLAB_READ_ONLY_MODE=true
 ```
 
-**3. Test in Dust.tt:**
-After Railway deploys (~1-2 min), reconnect in Dust.tt and try:
-- "List all files in project X"
-- "Show me the directory structure of project Y"
-
-The new tools should include `list_repository_tree` or similar!
+After changing environment variables, Railway will automatically redeploy.
 
 ## Support
 
 - 📖 [Model Context Protocol Documentation](https://modelcontextprotocol.io)
-- 🔧 [GitLab MCP Server Source](https://github.com/modelcontextprotocol/servers/tree/main/src/gitlab)
+- 🔧 [zereight/mcp-gitlab Source](https://github.com/zereight/mcp-gitlab)
+- 📦 [NPM Package](https://www.npmjs.com/package/@zereight/mcp-gitlab)
 - 💬 Open an issue for bugs or questions
 
 ## License
