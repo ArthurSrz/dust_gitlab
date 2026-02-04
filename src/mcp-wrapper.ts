@@ -78,8 +78,11 @@ export class MCPWrapper extends EventEmitter {
         const lower = text.toLowerCase();
 
         // Detect readiness message from GitLab MCP server
-        if (lower.includes('running on stdio') || lower.includes('server started')) {
-          console.log('[MCP]', text);
+        // Official: "running on stdio", zereight: "Starting GitLab MCP Server"
+        if (lower.includes('running on stdio') ||
+            lower.includes('server started') ||
+            lower.includes('starting gitlab mcp server')) {
+          console.log('[MCP] Readiness detected:', text);
           markReady();
           return;
         }
@@ -120,13 +123,13 @@ export class MCPWrapper extends EventEmitter {
         }
       });
 
-      // Fallback timeout - only if readiness message not detected
+      // Fallback timeout - zereight package takes longer to start
       setTimeout(() => {
         if (!resolved) {
-          console.log('[MCP] No readiness message detected, assuming ready');
+          console.log('[MCP] No readiness message detected after 8s, assuming ready');
           markReady();
         }
-      }, 3000);
+      }, 8000);
     });
   }
 

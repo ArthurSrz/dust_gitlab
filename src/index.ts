@@ -243,8 +243,53 @@ app.listen(PORT, async () => {
   // Pre-warm MCP wrapper on startup so it's ready when Dust.tt connects
   console.log('[Startup] Pre-warming MCP wrapper...');
   try {
-    await getOrCreateMCPWrapper();
-    console.log('[Startup] MCP wrapper ready - server fully initialized');
+    const wrapper = await getOrCreateMCPWrapper();
+    console.log('[Startup] MCP wrapper ready, sending warm-up requests...');
+
+    // Send initialize to warm up the server
+    const initResponse = await new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Warm-up timeout')), 15000);
+      const handler = (msg: any) => {
+        if (msg.id === 'warmup-init') {
+          clearTimeout(timeout);
+          wrapper.removeListener('message', handler);
+          resolve(msg);
+        }
+      };
+      wrapper.on('message', handler);
+      wrapper.sendMessage({
+        jsonrpc: '2.0',
+        id: 'warmup-init',
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'dust-gitlab-warmup', version: '1.0.0' }
+        }
+      });
+    });
+    console.log('[Startup] Initialize warm-up complete');
+
+    // Send tools/list to cache the tool list
+    const toolsResponse = await new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Tools list timeout')), 15000);
+      const handler = (msg: any) => {
+        if (msg.id === 'warmup-tools') {
+          clearTimeout(timeout);
+          wrapper.removeListener('message', handler);
+          resolve(msg);
+        }
+      };
+      wrapper.on('message', handler);
+      wrapper.sendMessage({
+        jsonrpc: '2.0',
+        id: 'warmup-tools',
+        method: 'tools/list',
+        params: {}
+      });
+    });
+    console.log(`[Startup] Tools warm-up complete: ${toolsResponse.result?.tools?.length || 0} tools`);
+    console.log('[Startup] Server fully initialized and warmed up');
   } catch (error) {
     console.error('[Startup] Failed to pre-warm MCP wrapper:', error);
     // Don't exit - let it retry on first request
