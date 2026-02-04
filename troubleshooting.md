@@ -1,66 +1,52 @@
 # Troubleshooting Guide
 
-## Issue: "Error getting metadata from the remote MCP server" in Dust.tt
+## Issue: Dust.tt receives `initialize` response but never calls `tools/list`
 
 ### Symptoms
 - SSE connection establishes successfully
-- Auth middleware validates token correctly
-- POST requests reach server
-- But Dust.tt shows "Error getting metadata from the remote MCP server"
+- `initialize` request received and responded
+- But `tools/list` never arrives
+- No tools appear in Dust.tt interface
 
-### Root Cause
-The POST endpoint was returning `{ status: 'ok' }` instead of the actual JSON-RPC response.
+### Root Cause: Transport Mismatch (Old SSE vs Streamable HTTP)
 
-Per the [MCP Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports):
-> If the input is a JSON-RPC *request*, the server MUST return the actual response (Content-Type: application/json) or initiate an SSE stream (Content-Type: text/event-stream).
+**CRITICAL FINDING**: Dust.tt uses protocol version `2025-06-18` but expects **Old SSE transport**, NOT Streamable HTTP!
 
-When Dust.tt sends `initialize` or `tools/list` requests, it expects:
-- A JSON-RPC response with server capabilities
-- A list of available tools
+| Transport | POST Response | Response Delivery |
+|-----------|--------------|-------------------|
+| **Old SSE** (what Dust.tt expects) | `{ status: 'ok' }` immediately | ALL responses via SSE stream |
+| **Streamable HTTP** (what we tried) | Waits & returns actual response | Only notifications via SSE |
 
-Not `{ status: 'ok' }`.
-
-### Solution
-Distinguish between **requests** (have `id` field) and **notifications** (no `id`):
-
+### What Didn't Work (Streamable HTTP approach)
 ```typescript
-// Notifications: just forward, return 202 Accepted
-if (msg.id === undefined) {
+// ❌ WRONG - waits for response and returns it in POST body
+const response = await wrapper.waitForResponse(msg.id);
+res.json(response);  // Dust.tt doesn't read this!
+
+// Also wrong - filtering responses from SSE:
+if (msg.id !== undefined) return;  // Dust.tt expects responses HERE
+```
+
+### Solution (Old SSE approach)
+```typescript
+// ✅ CORRECT - return immediately, response goes via SSE
+app.post('/sse/messages', auth, async (req, res) => {
+  const wrapper = await getOrCreateMCPWrapper();
   wrapper.sendMessage(msg);
-  res.status(202).send();
-  return;
-}
-
-// Requests: wait for response and return it
-const response = await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => {
-    wrapper.removeListener('message', handler);
-    reject(new Error('Timeout'));
-  }, 30000);
-
-  const handler = (response) => {
-    if (response.id === msg.id) {
-      clearTimeout(timeout);
-      wrapper.removeListener('message', handler);
-      resolve(response);
-    }
-  };
-
-  wrapper.on('message', handler);
-  wrapper.sendMessage(msg);
+  res.json({ status: 'ok' });  // Acknowledge receipt
 });
 
-res.json(response);
+// In SSE handler - forward ALL messages (including responses):
+const onMessage = (msg: any) => {
+  res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
+};
 ```
 
-### Verification
-In Railway logs, you should see:
-```
-[Request] initialize id=1
-[Response] id=1: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"...
-[Request] tools/list id=2
-[Response] id=2: {"jsonrpc":"2.0","id":2,"result":{"tools":[...9 tools...
-```
+### Evidence
+The working `gitlab-exist` implementation uses Old SSE transport and Dust.tt connects successfully.
+
+### Protocol Detection Hint
+Despite using protocol version `2025-06-18` in the `initialize` handshake, Dust.tt still uses the deprecated SSE transport behavior. Don't be fooled by the protocol version!
 
 ---
 
@@ -203,27 +189,22 @@ This is safe because:
 
 ## Issue: Duplicate responses causing client confusion
 
-### Symptoms
-- Logs show responses are being sent correctly
-- But Dust.tt still reports errors
-- Responses appear to be sent twice
+### ~~Previous advice (WRONG for Dust.tt)~~
 
-### Root Cause
-Per MCP spec: "If the server returns application/json, it MUST NOT also push that response via SSE"
+~~Filter out responses from SSE stream because "If server returns application/json, it MUST NOT also push via SSE"~~
 
-The SSE handler was broadcasting ALL messages from MCPWrapper, including responses that were ALSO being returned via POST response body.
+### Corrected Understanding
 
-### Solution
-Filter out responses (messages with `id`) from SSE stream:
+This MCP spec rule applies to **Streamable HTTP transport**. But Dust.tt uses **Old SSE transport** where:
+- POST only returns acknowledgment (`{ status: 'ok' }`)
+- ALL responses MUST go via SSE stream
+
+### Solution for Dust.tt
+Do NOT filter responses. Forward everything via SSE:
 
 ```typescript
 const onMessage = (msg: any) => {
-  // Don't send responses via SSE - they go via POST body
-  if (msg.id !== undefined) {
-    return;
-  }
-
-  // Only server-initiated notifications go via SSE
+  // OLD SSE: Forward ALL messages including responses
   res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
 };
 ```
