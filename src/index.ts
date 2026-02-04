@@ -16,16 +16,26 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`, {
+    hasAuth: !!req.headers.authorization,
+    contentType: req.headers['content-type']
+  });
+  next();
+});
+
 let globalMCPWrapper: MCPWrapper | null = null;
 
 async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
   if (!globalMCPWrapper || !globalMCPWrapper.isRunning()) {
+    console.log('[MCP] Creating new wrapper...');
     globalMCPWrapper = new MCPWrapper(
       process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
       process.env.GITLAB_API_URL!
     );
     await globalMCPWrapper.start();
-    console.log('[MCP] Started');
+    console.log('[MCP] Wrapper started successfully');
   }
   return globalMCPWrapper;
 }
@@ -38,13 +48,24 @@ async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
   }
 });
 
-// Auth middleware
+// Auth middleware - properly validates Bearer token format
 function auth(req: Request, res: Response, next: Function) {
-  const token = req.headers.authorization?.substring(7);
-  if (token !== process.env.MCP_AUTH_SECRET) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('[Auth] Missing or malformed Authorization header:', authHeader ? 'present but wrong format' : 'missing');
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
+
+  const token = authHeader.substring(7);
+  if (token !== process.env.MCP_AUTH_SECRET) {
+    console.log('[Auth] Invalid token');
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  console.log('[Auth] Token valid');
   next();
 }
 
@@ -55,6 +76,7 @@ app.get('/health', (_, res) => {
 
 // SSE endpoint
 app.get('/sse', auth, async (req, res) => {
+  console.log('[SSE] Auth passed, establishing connection');
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
