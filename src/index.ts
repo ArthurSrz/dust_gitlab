@@ -103,6 +103,7 @@ app.get('/sse', auth, async (req, res) => {
   res.flushHeaders();
 
   res.write(`event: endpoint\ndata: /sse/messages\n\n`);
+  console.log('[SSE] Sent endpoint event');
 
   try {
     const wrapper = await getOrCreateMCPWrapper();
@@ -131,6 +132,7 @@ app.get('/sse', auth, async (req, res) => {
     wrapper.on('error', onError);
 
     req.on('close', () => {
+      console.log('[SSE] Connection closed by client');
       wrapper.removeListener('message', onMessage);
       wrapper.removeListener('error', onError);
     });
@@ -195,8 +197,11 @@ app.post('/sse/messages', auth, async (req, res) => {
     }
 
     // Requests (have id): wait for response and return it
+    console.log(`[Request] Waiting for response to id=${msg.id}...`);
+    const startTime = Date.now();
     const response = await new Promise<any>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        console.log(`[Timeout] No response for id=${msg.id} after 30s`);
         wrapper.removeListener('message', handler);
         reject(new Error('Timeout waiting for MCP response'));
       }, 30000);
@@ -214,7 +219,8 @@ app.post('/sse/messages', auth, async (req, res) => {
       wrapper.sendMessage(msg);
     });
 
-    console.log(`[Response] id=${msg.id}: ${JSON.stringify(response).substring(0, 200)}...`);
+    const elapsed = Date.now() - startTime;
+    console.log(`[Response] id=${msg.id} (${elapsed}ms): ${JSON.stringify(response).substring(0, 200)}...`);
     res.json(response);
   } catch (error) {
     console.error('[Error]', error);
