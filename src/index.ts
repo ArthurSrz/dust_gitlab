@@ -26,18 +26,38 @@ app.use((req, res, next) => {
 });
 
 let globalMCPWrapper: MCPWrapper | null = null;
+let wrapperCreationPromise: Promise<MCPWrapper> | null = null;
 
 async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
-  if (!globalMCPWrapper || !globalMCPWrapper.isRunning()) {
+  // If already running, return it
+  if (globalMCPWrapper?.isRunning()) {
+    return globalMCPWrapper;
+  }
+
+  // If creation is in progress, wait for the same promise (prevents race condition)
+  if (wrapperCreationPromise) {
+    console.log('[MCP] Waiting for existing wrapper creation...');
+    return wrapperCreationPromise;
+  }
+
+  // Start creation and store promise so concurrent requests wait for it
+  wrapperCreationPromise = (async () => {
     console.log('[MCP] Creating new wrapper...');
-    globalMCPWrapper = new MCPWrapper(
+    const wrapper = new MCPWrapper(
       process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
       process.env.GITLAB_API_URL!
     );
-    await globalMCPWrapper.start();
+    await wrapper.start();
+    globalMCPWrapper = wrapper;
     console.log('[MCP] Wrapper started successfully');
+    return wrapper;
+  })();
+
+  try {
+    return await wrapperCreationPromise;
+  } finally {
+    wrapperCreationPromise = null;
   }
-  return globalMCPWrapper;
 }
 
 // Validate required env vars
@@ -88,10 +108,18 @@ app.get('/sse', auth, async (req, res) => {
     const wrapper = await getOrCreateMCPWrapper();
 
     const onMessage = (msg: any) => {
+      // Don't send responses via SSE - they're returned via POST response body
+      // Per MCP spec: "If server returns application/json, it MUST NOT also push via SSE"
+      if (msg.id !== undefined) {
+        return;
+      }
+
+      // Only server-initiated notifications go via SSE
       // Enhance 404 errors with context
       if (msg.error?.message?.includes('Not Found') && !msg.error.message.includes('Tip:')) {
         msg.error.message += ' | Tip: Check project path (group/project), file path, and branch name';
       }
+      console.log('[SSE] Forwarding server notification:', JSON.stringify(msg).substring(0, 100));
       res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
     };
 
@@ -140,13 +168,15 @@ function fixParams(msg: any): any {
   return msg;
 }
 
-// POST endpoint
+// POST endpoint - handles JSON-RPC messages per MCP Streamable HTTP spec
 app.post('/sse/messages', auth, async (req, res) => {
   let msg = req.body;
 
   if (msg.method === 'tools/call') {
     console.log(`[Tool] ${msg.params?.name}: ${JSON.stringify(msg.params?.arguments || {})}`);
     msg = fixParams(msg);
+  } else if (msg.method) {
+    console.log(`[Request] ${msg.method} id=${msg.id}`);
   }
 
   if (msg.jsonrpc !== '2.0') {
@@ -156,10 +186,43 @@ app.post('/sse/messages', auth, async (req, res) => {
 
   try {
     const wrapper = await getOrCreateMCPWrapper();
-    wrapper.sendMessage(msg);
-    res.json({ status: 'ok' });
+
+    // Notifications (no id) and responses: just forward, return 202 Accepted
+    if (msg.id === undefined) {
+      wrapper.sendMessage(msg);
+      res.status(202).send();
+      return;
+    }
+
+    // Requests (have id): wait for response and return it
+    const response = await new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        wrapper.removeListener('message', handler);
+        reject(new Error('Timeout waiting for MCP response'));
+      }, 30000);
+
+      const handler = (response: any) => {
+        // Match response by id
+        if (response.id === msg.id) {
+          clearTimeout(timeout);
+          wrapper.removeListener('message', handler);
+          resolve(response);
+        }
+      };
+
+      wrapper.on('message', handler);
+      wrapper.sendMessage(msg);
+    });
+
+    console.log(`[Response] id=${msg.id}: ${JSON.stringify(response).substring(0, 200)}...`);
+    res.json(response);
   } catch (error) {
-    res.status(500).json({ error: 'Internal error' });
+    console.error('[Error]', error);
+    res.status(500).json({
+      jsonrpc: '2.0',
+      id: msg.id,
+      error: { code: -32603, message: 'Internal error' }
+    });
   }
 });
 
@@ -168,6 +231,16 @@ app.use((err: Error, _req: Request, res: Response, _next: Function) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ MCP Server on port ${PORT}`);
+
+  // Pre-warm MCP wrapper on startup so it's ready when Dust.tt connects
+  console.log('[Startup] Pre-warming MCP wrapper...');
+  try {
+    await getOrCreateMCPWrapper();
+    console.log('[Startup] MCP wrapper ready - server fully initialized');
+  } catch (error) {
+    console.error('[Startup] Failed to pre-warm MCP wrapper:', error);
+    // Don't exit - let it retry on first request
+  }
 });
