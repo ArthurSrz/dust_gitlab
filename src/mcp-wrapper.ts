@@ -21,6 +21,8 @@ export class MCPWrapper extends EventEmitter {
 
   constructor(private token: string, private apiUrl: string) {
     super();
+    // Allow many concurrent request handlers (each POST request adds a listener)
+    this.setMaxListeners(50);
   }
 
   async start(): Promise<void> {

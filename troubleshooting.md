@@ -172,6 +172,35 @@ async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
 
 ---
 
+## Issue: MaxListenersExceededWarning in logs
+
+### Symptoms
+```
+MaxListenersExceededWarning: Possible EventEmitter memory leak detected.
+11 message listeners added to [MCPWrapper]. MaxListeners is 10.
+```
+
+### Root Cause
+Each POST request adds a temporary `message` listener to wait for its matching response. With concurrent requests (common when Dust.tt sends multiple tool calls), the listener count can exceed Node's default limit of 10.
+
+### Solution
+Increase the max listeners limit in MCPWrapper constructor:
+
+```typescript
+constructor(private token: string, private apiUrl: string) {
+  super();
+  // Allow many concurrent request handlers
+  this.setMaxListeners(50);
+}
+```
+
+This is safe because:
+- Listeners ARE removed after each request completes
+- The accumulation is temporary during concurrent request handling
+- 50 allows for reasonable burst traffic
+
+---
+
 ## Issue: Duplicate responses causing client confusion
 
 ### Symptoms
