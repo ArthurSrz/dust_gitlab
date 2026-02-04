@@ -26,18 +26,38 @@ app.use((req, res, next) => {
 });
 
 let globalMCPWrapper: MCPWrapper | null = null;
+let wrapperCreationPromise: Promise<MCPWrapper> | null = null;
 
 async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
-  if (!globalMCPWrapper || !globalMCPWrapper.isRunning()) {
+  // If already running, return it
+  if (globalMCPWrapper?.isRunning()) {
+    return globalMCPWrapper;
+  }
+
+  // If creation is in progress, wait for the same promise (prevents race condition)
+  if (wrapperCreationPromise) {
+    console.log('[MCP] Waiting for existing wrapper creation...');
+    return wrapperCreationPromise;
+  }
+
+  // Start creation and store promise so concurrent requests wait for it
+  wrapperCreationPromise = (async () => {
     console.log('[MCP] Creating new wrapper...');
-    globalMCPWrapper = new MCPWrapper(
+    const wrapper = new MCPWrapper(
       process.env.GITLAB_PERSONAL_ACCESS_TOKEN!,
       process.env.GITLAB_API_URL!
     );
-    await globalMCPWrapper.start();
+    await wrapper.start();
+    globalMCPWrapper = wrapper;
     console.log('[MCP] Wrapper started successfully');
+    return wrapper;
+  })();
+
+  try {
+    return await wrapperCreationPromise;
+  } finally {
+    wrapperCreationPromise = null;
   }
-  return globalMCPWrapper;
 }
 
 // Validate required env vars
