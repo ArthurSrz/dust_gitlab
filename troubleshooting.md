@@ -118,3 +118,83 @@ function fixParams(msg: any): any {
   return msg;
 }
 ```
+
+---
+
+## Issue: Race condition - Multiple MCP wrappers created
+
+### Symptoms
+In Railway logs, you see:
+```
+[MCP] Creating new wrapper...
+[MCP] GitLab MCP Server running on stdio
+[MCP] GitLab MCP Server running on stdio    ← TWO instances!
+[MCP] Ready
+[MCP] Wrapper started successfully
+[MCP] Ready
+[MCP] Wrapper started successfully          ← TWO wrappers!
+```
+
+### Root Cause
+When multiple requests arrive simultaneously (e.g., `tools/list` and `initialize`), the async `getOrCreateMCPWrapper()` function would start creating a wrapper for each request before the first one finished.
+
+### Solution
+Store the creation promise so concurrent requests wait for the same wrapper:
+
+```typescript
+let wrapperCreationPromise: Promise<MCPWrapper> | null = null;
+
+async function getOrCreateMCPWrapper(): Promise<MCPWrapper> {
+  if (globalMCPWrapper?.isRunning()) {
+    return globalMCPWrapper;
+  }
+
+  // Concurrent requests wait for the same promise
+  if (wrapperCreationPromise) {
+    console.log('[MCP] Waiting for existing wrapper creation...');
+    return wrapperCreationPromise;
+  }
+
+  wrapperCreationPromise = (async () => {
+    const wrapper = new MCPWrapper(...);
+    await wrapper.start();
+    globalMCPWrapper = wrapper;
+    return wrapper;
+  })();
+
+  try {
+    return await wrapperCreationPromise;
+  } finally {
+    wrapperCreationPromise = null;
+  }
+}
+```
+
+---
+
+## Issue: Duplicate responses causing client confusion
+
+### Symptoms
+- Logs show responses are being sent correctly
+- But Dust.tt still reports errors
+- Responses appear to be sent twice
+
+### Root Cause
+Per MCP spec: "If the server returns application/json, it MUST NOT also push that response via SSE"
+
+The SSE handler was broadcasting ALL messages from MCPWrapper, including responses that were ALSO being returned via POST response body.
+
+### Solution
+Filter out responses (messages with `id`) from SSE stream:
+
+```typescript
+const onMessage = (msg: any) => {
+  // Don't send responses via SSE - they go via POST body
+  if (msg.id !== undefined) {
+    return;
+  }
+
+  // Only server-initiated notifications go via SSE
+  res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
+};
+```
