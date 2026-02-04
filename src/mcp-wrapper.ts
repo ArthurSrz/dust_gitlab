@@ -40,7 +40,7 @@ export class MCPWrapper extends EventEmitter {
         }
       };
 
-      this.process = spawn('npx', ['--yes', '@modelcontextprotocol/server-gitlab'], {
+      this.process = spawn('npx', ['--yes', '@zereight/mcp-gitlab'], {
         env: {
           ...process.env,
           GITLAB_PERSONAL_ACCESS_TOKEN: this.token,
