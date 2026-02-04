@@ -108,10 +108,18 @@ app.get('/sse', auth, async (req, res) => {
     const wrapper = await getOrCreateMCPWrapper();
 
     const onMessage = (msg: any) => {
+      // Don't send responses via SSE - they're returned via POST response body
+      // Per MCP spec: "If server returns application/json, it MUST NOT also push via SSE"
+      if (msg.id !== undefined) {
+        return;
+      }
+
+      // Only server-initiated notifications go via SSE
       // Enhance 404 errors with context
       if (msg.error?.message?.includes('Not Found') && !msg.error.message.includes('Tip:')) {
         msg.error.message += ' | Tip: Check project path (group/project), file path, and branch name';
       }
+      console.log('[SSE] Forwarding server notification:', JSON.stringify(msg).substring(0, 100));
       res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`);
     };
 
